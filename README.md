@@ -146,17 +146,19 @@ The `LEXER` package comes with a similar macro: `deflexer`. The `deflexer` macro
 
 A simple example:
 
-	CL-USER > (deflexer my-lexer ()
-	            (#/%s+/)
-	            (#/%d+/   (values :number (parse-integer $$)))
-	            (#/%a%w*/ (values :ident $$))
-	            (#/=/     :eq))
+	CL-USER > (deflexer my-lexer (:case-fold t :multi-line t)
+	            ("%s+")
+	            ("%d+"   (values :number (parse-integer $$)))
+	            ("%a%w*" (values :ident $$))
+	            ("="     :eq))
 	MY-LEXER
 
 	CL-USER > (my-lexer " x = 10 ")
 	#<anonymous interpreted function 21B0FA8A>
 
 Each time the anonymous function is called, it will return the next token in the stream. Patterns that have no token body associated with them (e.g. the whitespace example above) are skipped. The token patterns are tried, in-order, so if there is any ambiguity the first one will win out (read: be careful!).
+
+*Note: whatever keyword options are passed to the lexer are also passed to all the token patterns compiled.*
 
 Let's put the above lexer to some use by first creating a really simple grammar...
 

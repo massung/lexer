@@ -53,6 +53,8 @@
 
 (defclass re ()
   ((pattern    :initarg :pattern    :reader re-pattern)
+   (case-fold  :initarg :case-fold  :reader re-case-fold-p)
+   (multi-line :initarg :multi-line :reader re-multi-line-p)
    (expression :initarg :expression :reader re-expression))
   (:documentation "Regular expression."))
 
@@ -89,6 +91,12 @@
   "Output a regular expression match to a stream."
   (print-unreadable-object (match s :type t)
     (format s "~s" (match-string match))))
+
+(defmethod make-load-form ((re re) &optional env)
+  "Tell the system how to save and load a regular expression to a FASL."
+  (with-slots (pattern case-fold multi-line)
+      re
+    `(compile-re ,pattern :case-fold ,case-fold :multi-line ,multi-line)))
 
 (defvar *case-fold* nil "Case-insentitive comparison.")
 (defvar *multi-line* nil "Dot and EOL also match newlines.")
@@ -142,7 +150,6 @@
 
 (defmacro deflexer (lexer (&rest options) &body patterns)
   "Create a tokenizing function."
-  (declare (ignorable options))
   (let ((lex-pos (gensym "lex-pos"))
         (tokenize (gensym "tokenize"))
         (source (gensym "source"))
@@ -158,14 +165,15 @@
                  (tagbody
                   ,skip-token
                   ,@(loop :for token :in patterns :collect
-                      (destructuring-bind (re &body body)
+                      (destructuring-bind (pattern &body body)
                           token
-                        `(with-re-match (,match (match-re ,re ,source :start ,lex-pos))
-                           (incf ,line (count #\newline (match-string ,match)))
-                           (setf ,lex-pos (match-pos-end ,match))
-                           ,(if (null body)
-                                `(go ,skip-token)
-                              `(return-from ,tokenize (progn ,@body)))))))
+                        (let ((re (apply #'compile-re (cons pattern options))))
+                          `(with-re-match (,match (match-re ,re ,source :start ,lex-pos))
+                             (incf ,line (count #\newline (match-string ,match)))
+                             (setf ,lex-pos (match-pos-end ,match))
+                             ,(if (null body)
+                                  `(go ,skip-token)
+                                `(return-from ,tokenize (progn ,@body))))))))
                  (error (make-condition 'lex-error 
                                         :source ,source 
                                         :pos ,lex-pos 
@@ -272,7 +280,11 @@
                       (values :char c)))))))
         (let ((expr (re-parser #'next-token)))
           (when expr
-            (make-instance 're :pattern pattern :expression expr)))))))
+            (make-instance 're 
+                           :pattern pattern 
+                           :case-fold case-fold
+                           :multi-line multi-line
+                           :expression expr)))))))
 
 (defun match-re (re s &key (start 0) (end (length s)) exact)
   "Check to see if a regexp pattern matches a string."
