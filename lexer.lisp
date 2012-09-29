@@ -151,7 +151,7 @@
 (defmacro deflexer (lexer (&rest options) &body patterns)
   "Create a tokenizing function."
   (let ((lex-pos (gensym "lex-pos"))
-        (tokenize (gensym "tokenize"))
+        (next-token (gensym "next-token"))
         (source (gensym "source"))
         (line (gensym "line"))
         (skip-token (gensym "skip"))
@@ -160,24 +160,25 @@
        (let ((,lex-pos 0)
              (,line 1))
          #'(lambda ()
-             (when (< ,lex-pos (length ,source))
-               (block ,tokenize
-                 (tagbody
-                  ,skip-token
-                  ,@(loop :for token :in patterns :collect
-                      (destructuring-bind (pattern &body body)
-                          token
-                        (let ((re (apply #'compile-re (cons pattern options))))
-                          `(with-re-match (,match (match-re ,re ,source :start ,lex-pos))
-                             (incf ,line (count #\newline (match-string ,match)))
-                             (setf ,lex-pos (match-pos-end ,match))
-                             ,(if (null body)
-                                  `(go ,skip-token)
-                                `(return-from ,tokenize (progn ,@body))))))))
-                 (error (make-condition 'lex-error 
-                                        :source ,source 
-                                        :pos ,lex-pos 
-                                        :line ,line)))))))))
+             (block ,next-token
+               (tagbody
+                ,skip-token
+                (unless (< ,lex-pos (length ,source))
+                  (return-from ,next-token))
+                ,@(loop :for token :in patterns :collect
+                    (destructuring-bind (pattern &body body)
+                        token
+                      (let ((re (apply #'compile-re (cons pattern options))))
+                        `(with-re-match (,match (match-re ,re ,source :start ,lex-pos))
+                           (incf ,line (count #\newline (match-string ,match)))
+                           (setf ,lex-pos (match-pos-end ,match))
+                           ,(if (null body)
+                                `(go ,skip-token)
+                              `(return-from ,next-token (progn ,@body))))))))
+               (error (make-condition 'lex-error
+                                      :source ,source
+                                      :pos ,lex-pos
+                                      :line ,line))))))))
 
 (defparser re-parser
   ((start exprs) $1)
