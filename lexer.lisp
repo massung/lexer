@@ -65,7 +65,9 @@
 
 (defclass lex-state ()
   ((source   :initarg :source   :reader lex-source)
-   (captures :initarg :captures :reader lex-captures))
+   (start    :initarg :start    :reader lex-start)
+   (captures :initarg :captures :reader lex-captures)
+   (newline  :initarg :newline  :reader lex-newline))
   (:documentation "Token pattern matching state."))
 
 (define-condition lex-error (error)
@@ -201,6 +203,7 @@
   ;; any character and end of line/input
   ((expr :any) (any-char :match-newline-p (not *multi-line*)))
   ((expr :eol) (eol :match-newline-p *multi-line*))
+  ((expr :none) (newline :match-newline-p *multi-line*))
 
   ;; named sets
   ((expr :one-of) (one-of $1))
@@ -213,6 +216,7 @@
   ;; character set (just a list of characters)
   ((chars :one-of chars) (append (coerce $1 'list) $2))
   ((chars :char :to :char chars) (append (range-chars $1 $3) $4))
+  ((chars :to :end-set) (list #\-))
   ((chars :char chars) (cons $1 $2))
   ((chars :end-set) nil))
 
@@ -277,7 +281,12 @@
                  (end (cdr place)))
              (cons (subseq s start end) captures))))
     (with-input-from-string (source s :start start :end end)
-      (let ((st (make-instance 'lex-state :source source :captures nil)))
+      (let ((st (make-instance 'lex-state 
+                               :source source
+                               :start start
+                               :captures nil
+                               :newline (or (zerop start)
+                                            (char= (char s (1- start)) #\newline)))))
         (when (funcall (re-expression re) st)
           (let ((caps (reduce #'capture (lex-captures st) :initial-value nil))
                 (end-pos (file-position source)))
@@ -385,6 +394,11 @@
         (if (and match-newline-p (char= x #\newline))
             t
           (null x)))))
+
+(defun newline (&key (match-newline-p t))
+  "Start of file or line."
+  #'(lambda (st)
+      (or (zerop (lex-start st)) (and match-newline-p (lex-newline st)))))
 
 (defun ch (c &key case-fold)
   "Match an exact character."
