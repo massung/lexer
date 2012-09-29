@@ -42,7 +42,12 @@
    #:match-string
    #:match-captures
    #:match-pos-start
-   #:match-pos-end))
+   #:match-pos-end
+
+   ;; parse error functions
+   #:lex-error-source
+   #:lex-error-pos
+   #:lex-error-line))
 
 (in-package :lexer)
 
@@ -95,6 +100,10 @@
 (defconstant +alpha-numeric+ #.(concatenate 'string +letter+ +digit+))
 (defconstant +spaces+ #.(format nil "~c~c" #\space #\tab))
 (defconstant +newlines+ #.(format nil "~c~c~c" #\newline #\return #\linefeed))
+
+(defun range-chars (from to)
+  "Return an inclusive list of characters in ascii order."
+  (loop :for c :from (char-code from) :to (char-code to) :collect (code-char c)))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (flet ((dispatch-re (s c n)
@@ -175,6 +184,7 @@
   ((simple expr :maybe) (maybe $1))
   ((simple expr :many) (many $1))
   ((simple expr :many1) (many1 $1))
+  ((simple expr :to) (many $1))
   ((simple expr) $1)
 
   ;; capture expression (x)
@@ -189,7 +199,7 @@
   ((expr :char) (ch $1 :case-fold *case-fold*))
 
   ;; any character and end of line/input
-  ((expr :any) (any-char :match-newline-p *multi-line*))
+  ((expr :any) (any-char :match-newline-p (not *multi-line*)))
   ((expr :eol) (eol :match-newline-p *multi-line*))
 
   ;; named sets
@@ -202,7 +212,7 @@
 
   ;; character set (just a list of characters)
   ((chars :one-of chars) (append (coerce $1 'list) $2))
-  ((chars :none-of chars) (append (coerce $1 'list) $2))
+  ((chars :char :to :char chars) (append (range-chars $1 $3) $4))
   ((chars :char chars) (cons $1 $2))
   ((chars :end-set) nil))
 
@@ -252,6 +262,7 @@
                      (#\? :maybe)
                      (#\* :many)
                      (#\+ :many1)
+                     (#\- :to)
                      (#\| :or)
                      (otherwise
                       (values :char c)))))))

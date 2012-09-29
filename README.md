@@ -1,8 +1,6 @@
 # The LEXER Package
 
-The `LEXER` package is a very simple, small, and fast regular expression library for [LispWorks](http://www.lispworks.com). It follows the pattern matching syntax used by [Lua](http://www.lua.org) for simple regular expression functionality (match, searching, splitting, and replacing). You can see the syntax for these patterns [here](http://www.lua.org/pil/20.2.html).
-
-It also has a lexer macro that tokenizes string and is designed to be used in conjuction with the [`PARSERGEN`](http://www.lispworks.com/documentation/lw50/LWRM/html/lwref-433.htm) package built into [LispWorks](http://www.lispworks.com).
+The `LEXER` package is a very simple and small regular expression library for [LispWorks](http://www.lispworks.com). It follows the pattern matching syntax used by [Lua](http://www.lua.org) for simple regular expression functionality: matching, searching, splitting, and replacing. You can see the syntax for these patterns [here](http://www.lua.org/pil/20.2.html). It also has a lexer macro that tokenizes strings and is designed to be used in conjuction with the [`PARSERGEN`](http://www.lispworks.com/documentation/lw50/LWRM/html/lwref-433.htm) package built into [LispWorks](http://www.lispworks.com).
 
 # Lua-style Regular Expressions
 
@@ -50,6 +48,8 @@ The `replace-re` function searches for the pattern within the string and then ca
 
 # Examples
 
+Trying to match a simple pattern with a string...
+
 	CL-USER > (match-re #/%d+/ "abc 123")
 	NIL
 
@@ -62,11 +62,15 @@ The `replace-re` function searches for the pattern within the string and then ca
 	CL-USER > (match-pos-end *)
 	3
 
+Looking for a pattern somewhere in a string...
+
 	CL-USER > (find-re #/%d+/ "abc 123 def")
 	#<RE-MATCH "123">
 
 	CL-USER > (find-re #/%d+/ "123 4 5678" :all t)
 	(#<RE-MATCH "123"> #<RE-MATCH "4"> #<RE-MATCH "5678">)
+
+Splitting a string on a pattern...
 
 	CL-USER > (split-re #/,/ "1,2,3")
 	"1"
@@ -84,19 +88,35 @@ The `replace-re` function searches for the pattern within the string and then ca
 	CL-USER > (split-re #/,/ "1,,,,2,,3" :all t :coalesce-seps t)
 	("1" "2" "3")
 
+Replacing parts of a string matching a pattern...
+
 	CL-USER > (replace-re #/%d/ #'(lambda (m) "*") "1 2 3")
 	"* 2 3"
 
 	CL-USER > (replace-re #/%d/ #'(lambda (m) "*") "1 2 3" :all t)
 	"* * *"
 
+# Captures
+
+Using parenthesis in a pattern will cause the matching text to be captured as a sub-expression in the returned `re-match` object. The `match-captures` function will return a list of all the captured strings in the match.
+
+	CL-USER > (match-re #/(%d+)(%a+)/ "123abc" :exact t)
+	#<RE-MATCH "123abc">
+	
+	CL-USER > (match-captures *)
+	("123" "abc")
+
+Captures cannot currently be nested.
+
+*Reminder: you can use the `match-string` function to get at the full text that was matched.*
+
 # The `with-re-match` Macro
 
 Once you have a `re-match` object, while you can get at the captures and matched string yourself, the `with-re-match` macro is very helpful in letting you use that information in a more readable manner.
 
-	(with-re-match ((var match) &body body)
+	(with-re-match ((var match-expr) &body body)
 
-The `var` is the symbol that will be lexically bound to the results of `match`. Once inside `body`, however, There will be 10 additional symbols: `$$`, `$1`, `$2`, `$3`, ... `$9`. These are bound to the `match-string` and the `match-capture` strings.
+The `var` is the symbol that will be lexically bound to the results of `match-expr`. Once inside `body`, however, There will be 10 additional symbols: `$$`, `$1`, `$2`, `$3`, ... `$9`. These are bound to the `match-string` and the `match-capture` strings.
 
 	CL-USER > (with-re-match (m (find-re #/{([^}]+)}/ "this {is a} test"))
 	            (print $$)
@@ -122,7 +142,7 @@ The pattern matching functionality provided - while very useful - is only a smal
 
 [LispWorks](http://www.lispworks.com) comes with a fantastic [`PARSERGEN`](http://www.lispworks.com/documentation/lw50/LWRM/html/lwref-433.htm) package that - given a grammar - will create a function to parse a series of tokens (see the [`defparser`](http://www.lispworks.com/documentation/lw60/LW/html/lw-301.htm#pgfId-886013) function). 
 
-The `LEXER` package comes with a similar macro: `deflexer`. The `deflexer` macro is called with a set of token/body pairs and produces a function that - when handed a string - returns a new function that can be sent to a parser, which will then hand-off the next token parsed upon request.
+The `LEXER` package comes with a similar macro: `deflexer`. The `deflexer` macro is called with a set of token/body pairs and produces a function that - when handed a string - returns a new function that can be sent to a parser, which will then lazily match a new token each subsequent call.
 
 A simple example:
 
@@ -203,8 +223,8 @@ The `deflexer` macro builds a function that checks each of the token patterns in
 
 There are still a couple things that I want to do:
 
+* Nested captures.
 * Add some good restarts to `lex-error`.
-* Range sets (e.g. `[a-z]`).
 * Multiple, exclusive sets (e.g. `[%P%D]`).
 
 None are especially hard, but they aren't a high priority at the moment. If one of these (or something else) is for you, let me know and I'll see what I can do.
