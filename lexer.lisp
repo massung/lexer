@@ -199,7 +199,7 @@
   ((simple expr) $1)
 
   ;; capture expression (x)
-  ((expr :capture compound :end-capture) (capture $2))
+  ((expr :capture exprs :end-capture) (capture $2))
 
   ;; bounded expression
   ((expr :between) 
