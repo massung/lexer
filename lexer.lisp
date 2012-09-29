@@ -363,7 +363,7 @@
   "Read the next character, update the pos, test against predicate."
   (let ((c (read-char (lex-source st) nil nil)))
     (if (funcall pred c)
-        t
+        c
       (when c
         (unread-char c (lex-source st))))))
 
