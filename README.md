@@ -106,9 +106,15 @@ Using parenthesis in a pattern will cause the matching text to be captured as a 
 	CL-USER > (match-captures *)
 	("123" "abc")
 
-Captures cannot currently be nested.
+Captures can be nested. The order in which they are captures is the order in which they are *closed*. For example:
 
-*Reminder: you can use the `match-string` function to get at the full text that was matched.*
+	CL-USER > (match-re #/((%a)(%a+))/ "testing")
+	#<RE-MATCH "testing">
+
+	CL-USER > (match-captures *)
+	("t" "esting" "testing")
+
+*Reminder: you can always use the `match-string` function to get at the full text that was matched.*
 
 # The `with-re-match` Macro
 
@@ -225,7 +231,6 @@ The `deflexer` macro builds a function that checks each of the token patterns in
 
 There are still a couple things that I want to do:
 
-* Nested captures.
 * Add some good restarts to `lex-error`.
 * Multiple, exclusive sets (e.g. `[%P%D]`).
 
