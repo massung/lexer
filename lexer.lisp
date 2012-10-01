@@ -188,7 +188,7 @@
   ((exprs compound) $1)
 
   ;; either expression a or b (a|b)
-  ((compound simple :or simple) (either $1 $3))
+  ((compound simple :or compound) (either $1 $3))
   ((compound simple) $1)
 
   ;; simple, optional, and repition (?, *, +)
