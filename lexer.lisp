@@ -386,11 +386,13 @@
 (defun either (p1 p2)
   "Try one parse combinator, if it fails, try another."
   #'(lambda (st)
-      (with-slots (source)
+      (with-slots (source captures)
           st
-        (let ((pos (file-position source)))
+        (let ((pos (file-position source))
+              (caps captures))
           (or (funcall p1 st)
               (progn
+                (setf captures caps)
                 (file-position source pos)
                 (funcall p2 st)))))))
 
