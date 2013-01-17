@@ -44,10 +44,19 @@
    #:match-pos-start
    #:match-pos-end
 
+   ;; lexer functions
+   #:lex-next-token
+   #:lex-lexeme
+   #:lex-pos
+   #:lex-line
+
    ;; parse error functions
    #:lex-error-source
    #:lex-error-pos
-   #:lex-error-line))
+   #:lex-error-line
+
+   ;; create a parse error
+   #:lex-parse-error))
 
 (in-package :lexer)
 
@@ -72,15 +81,34 @@
    (newline  :initarg :newline  :reader lex-newline))
   (:documentation "Token pattern matching state."))
 
+(defclass lexer ()
+  ((next   :initarg :next-token :reader lex-next-token)
+   (lexeme :initarg :lexeme     :reader lex-lexeme)
+   (pos    :initarg :pos        :reader lex-pos)
+   (line   :initarg :line       :reader lex-line))
+  (:documentation "Created by DEFLEXER, used to tokenize a string."))
+
 (define-condition lex-error (error)
   ((source :initarg :source :reader lex-error-source)
-   (pos    :initarg :pos    :reader lex-error-pos)
-   (line   :initarg :line   :reader lex-error-line))
+   (lexer  :initarg :lexer  :reader lex-error-lexer))
   (:documentation "Error signaled when a deflexer fails all patterns.")
   (:report (lambda (c s)
-             (with-slots (source pos line)
-                 c
-               (format s "Parse error on line ~d near '~c'" line (char source pos))))))
+             (with-slots (line pos)
+                 (lex-error-lexer c)
+               (let ((char (char (lex-error-source c) pos)))
+                 (format s "Lexing error on line ~d near '~c'" line char))))))
+
+(define-condition lex-parse-error (lex-error)
+  ()
+  (:documentation "Error signaled when a parser fails.")
+  (:report (lambda (c s)
+             (let ((source (lex-error-source c)))
+               (with-slots (pos line lexeme)
+                   (lex-error-lexer c)
+                 (if (and lexeme (plusp (length lexeme)))
+                     (format s "Parse error on line ~d of ~s near ~s" line source lexeme)
+                   (let ((ch (char source pos)))
+                     (format s "Parse error on line ~d of ~s near '~c'." line source ch))))))))
 
 (defmethod print-object ((re re) s)
   "Output a regular expression to a stream."
@@ -148,37 +176,37 @@
            (declare (ignorable ,$$ ,$1 ,$2 ,$3 ,$4 ,$5 ,$6 ,$7 ,$8 ,$9))
            (values (progn ,@body) t))))))
 
-(defmacro deflexer (lexer (&rest options) &body patterns)
+(defmacro deflexer (make-lexer (&rest options) &body patterns)
   "Create a tokenizing function."
-  (let ((lex-pos (gensym "lex-pos"))
+  (let ((lexer (gensym "lexer"))
         (next-token (gensym "next-token"))
         (source (gensym "source"))
-        (line (gensym "line"))
         (skip-token (gensym "skip"))
         (match (gensym "match")))
-    `(defun ,lexer (,source)
-       (let ((,lex-pos 0)
-             (,line 1))
-         #'(lambda ()
-             (block ,next-token
-               (tagbody
-                ,skip-token
-                (unless (< ,lex-pos (length ,source))
-                  (return-from ,next-token))
-                ,@(loop :for token :in patterns :collect
-                    (destructuring-bind (pattern &body body)
-                        token
-                      (let ((re (apply #'compile-re (cons pattern options))))
-                        `(with-re-match (,match (match-re ,re ,source :start ,lex-pos))
-                           (incf ,line (count #\newline (match-string ,match)))
-                           (setf ,lex-pos (match-pos-end ,match))
-                           ,(if (null body)
-                                `(go ,skip-token)
-                              `(return-from ,next-token (progn ,@body))))))))
-               (error (make-condition 'lex-error
-                                      :source ,source
-                                      :pos ,lex-pos
-                                      :line ,line))))))))
+    `(defun ,make-lexer (,source)
+       (let ((,lexer (make-instance 'lexer :lexeme nil :pos 0 :line 1)))
+         (flet ((,next-token ()
+                  (with-slots (pos line lexeme)
+                      ,lexer
+                    (tagbody
+                     ,skip-token
+                     (unless (< pos (length ,source))
+                       (return-from ,next-token))
+                     ,@(loop :for token :in patterns :collect
+                             (destructuring-bind (pattern &body body)
+                                 token
+                               (let ((re (apply #'compile-re (cons pattern options))))
+                                 `(with-re-match (,match (match-re ,re ,source :start pos))
+                                    (incf line (count #\newline (match-string ,match)))
+                                    (setf lexeme (match-string ,match))
+                                    (setf pos (match-pos-end ,match))
+                                    ,(if (null body)
+                                         `(go ,skip-token)
+                                       `(return-from ,next-token (progn ,@body))))))))
+                    (error (make-condition 'lex-error :source ,source :lexer ,lexer)))))
+           (prog1
+               ,lexer
+             (setf (slot-value ,lexer 'next) #',next-token)))))))
 
 (defparser re-parser
   ((start exprs) $1)
@@ -462,4 +490,3 @@
   "Match everything between two characters."
   (bind b1 (many-til (any-char :match-newline-p match-newline-p) b2)))
 
-(provide "LEXER")

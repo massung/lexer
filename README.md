@@ -148,7 +148,7 @@ The pattern matching functionality provided - while very useful - is only a smal
 
 [LispWorks](http://www.lispworks.com) comes with a fantastic [`PARSERGEN`](http://www.lispworks.com/documentation/lw50/LWRM/html/lwref-433.htm) package that - given a grammar - will create a function to parse a series of tokens (see the [`defparser`](http://www.lispworks.com/documentation/lw60/LW/html/lw-301.htm#pgfId-886013) function). 
 
-The `LEXER` package comes with a similar macro: `deflexer`. The `deflexer` macro is called with a set of token/body pairs and produces a function that - when handed a string - returns a new function that can be sent to a parser, which will then lazily match a new token each subsequent call.
+The `LEXER` package comes with a similar macro: `deflexer`. The `deflexer` macro is called with a set of token/body pairs and produces a function that - when handed a string - creates a lexer object that can be used to slowly tokenize the string that was used to create it.
 
 A simple example:
 
@@ -160,9 +160,11 @@ A simple example:
 	MY-LEXER
 
 	CL-USER > (my-lexer " x = 10 ")
-	#<anonymous interpreted function 21B0FA8A>
+	#<LEXER::LEXER 21B0FA8A>
 
-Each time the anonymous function is called, it will return the next token in the stream. Patterns that have no token body associated with them (e.g. the whitespace example above) are skipped. The token patterns are tried, in-order, so if there is any ambiguity the first one will win out (read: be careful!).
+The `LEXER` object has four methods that are used to either tokenize or inspect the current state of the itself. Of these, the most pertinent one is the `LEX-NEXT-TOKEN` method. This is a function that - when called - will return the next token in the source.
+
+Patterns that have no token body associated with them (e.g. the whitespace example above) are skipped. The token patterns are tried, in-order, so if there is any ambiguity the first one will win out (read: be careful!).
 
 *Note: whatever keyword options are passed to the lexer are also passed to all the token patterns compiled.*
 
@@ -175,7 +177,7 @@ Let's put the above lexer to some use by first creating a really simple grammar.
 
 We can now send our lexer (with source) to the parser...
 
-	CL-USER > (my-parser (my-lexer "x = 10"))
+	CL-USER > (my-parser (lex-next-token (my-lexer "x = 10")))
 	(:let "x" 10)
 	NIL
 
@@ -186,15 +188,45 @@ And done!
 While the tokenizer function produced by `deflexer` reads tokens from a string, it doesn't actually parse the entire string and then keep handing out tokens. Instead, it's parsing the tokens on-demand each call. For this reason, when all the token patterns fail, a `lex-error` condition will be signaled that specifies where in the source string (line # and at which exact character offset) things have gone wrong.
 
 	CL-USER > (my-lexer "!x = 10")
-	#<anonymous interpreted function 21CE915A>
+	#<LEXER::LEXER 21A9725F>
 
-	CL-USER > (funcall *)
+	CL-USER > (funcall (lex-next-token *))
 
 	Error: Parse error on line 1 near '!'
 	  1 (abort) Return to level 0.
 	  2 Return to top loop level 0.
 
 Work is being added for additional restart options like editing the source, viewing the line the error occured on, skipping the character, etc.
+
+If you come across an error in a parser, you can use the `LEX-LEXEME`, `LEX-POS`, and `LEX-LINE` functions on your `LEXER` object to determine where the parse error occurred.
+
+	CL-USER > (defparser bad-parser
+	            ((start let) $1)
+	            ((let :ident :eq :number) `(:let ,$1 ,$3))
+	            ((let :error) (assert nil)))
+	BAD-PARSER
+
+	CL-USER > (setf k (my-lexer "x 10 20"))
+	#<LEXER::LEXER 21A9725F>
+
+	CL-USER > (bad-parser (lex-next-token k))
+
+	Error: The assertion NIL failed.
+	  1 (continue) Retry assertion.
+	  2 (abort) Return to level 0.
+	  3 Return to top loop level 0.
+
+	Type :b for backtrace or :c <option number> to proceed.
+	Type :bug-form "<subject>" for a bug report template or :? for other options.
+
+	CL-USER : 1 > (lex-lexeme k)
+	"10"
+
+	CL-USER : 1 > (lex-line k)
+	1
+
+	CL-USER : 1 > (lex-pos k)
+	4
 
 # How It Works
 
