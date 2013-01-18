@@ -110,6 +110,10 @@
                    (let ((ch (char source pos)))
                      (format s "Parse error on line ~d of ~s near '~c'." line source ch))))))))
 
+(define-condition re-pattern-error (condition)
+  ()
+  (:documentation "Signaled when a regular expression parse fails."))
+
 (defmethod print-object ((re re) s)
   "Output a regular expression to a stream."
   (print-unreadable-object (re s :type t)
@@ -214,6 +218,7 @@
   ;; multiple expressions bound together
   ((exprs compound exprs) (bind $1 $2))
   ((exprs compound) $1)
+  ((exprs :error) (error 're-pattern-error))
 
   ;; either expression a or b (a|b)
   ((compound simple :or compound) (either $1 $3))
@@ -249,13 +254,24 @@
   ;; sets of characters ([..], [^..])
   ((expr :set :none chars) (none-of $3 :case-fold *case-fold*))
   ((expr :set chars) (one-of $2 :case-fold *case-fold*))
+  ((expr :error) (error 're-pattern-error))
 
   ;; character set (just a list of characters)
   ((chars :one-of chars) (append (coerce $1 'list) $2))
   ((chars :char :to :char chars) (append (range-chars $1 $3) $4))
-  ((chars :to :end-set) (list #\-))
+  ((chars :eol chars) (cons #\$ $2))
+  ((chars :any chars) (cons #\. $2))
+  ((chars :none chars) (cons #\^ $2))
+  ((chars :capture chars) (cons #\( $2))
+  ((chars :end-capture chars) (cons #\) $2))
+  ((chars :maybe chars) (cons #\? $2))
+  ((chars :many chars) (cons #\* $2))
+  ((chars :many1 chars) (cons #\+ $2))
+  ((chars :or chars) (cons #\| $2))
   ((chars :char chars) (cons $1 $2))
-  ((chars :end-set) nil))
+  ((chars :to :end-set) (list #\-))
+  ((chars :end-set) nil)
+  ((chars :error) (error 're-pattern-error)))
 
 (defun compile-re (pattern &key case-fold multi-line)
   "Create a regular expression pattern match."
