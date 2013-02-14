@@ -242,16 +242,16 @@
              (setf (slot-value ,lexer 'next) #',next-token)))))))
 
 (defparser re-parser
-  ((start exprs) $1)
-
-  ;; multiple expressions bound together
-  ((exprs compound exprs) (bind $1 $2))
-  ((exprs compound) $1)
-  ((exprs :error) (error 're-pattern-error))
+  ((start compound) $1)
 
   ;; either expression a or b (a|b)
-  ((compound compound :or simple) (either $1 $3))
-  ((compound simple) $1)
+  ((compound compound :or exprs) (either $1 $3))
+  ((compound exprs) $1)
+
+  ;; multiple expressions bound together
+  ((exprs simple exprs) (bind $1 $2))
+  ((exprs simple) $1)
+  ((exprs :error) (error 're-pattern-error))
 
   ;; simple, optional, and repition (?, *, +)
   ((simple expr :maybe) (maybe $1))
@@ -261,7 +261,7 @@
   ((simple expr) $1)
 
   ;; capture expression (x)
-  ((expr :capture exprs :end-capture) (capture $2))
+  ((expr :capture compound :end-capture) (capture $2))
 
   ;; bounded expression
   ((expr :between) 
@@ -279,7 +279,7 @@
   ;; sets of characters (named, [..], [^..])
   ((expr :one-of) (one-of $1))
   ((expr :none-of) (none-of $1))
-  ((expr :set set) $1)
+  ((expr :set set) $2)
 
   ((expr :error) (error 're-pattern-error))
 
