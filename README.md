@@ -168,7 +168,7 @@ The `LEXER` object has four methods that are used to either tokenize or inspect 
 	:IDENT
 	#<LEXER::TOKEN "x">
 
-The tokens found can be inspected with the following reader functions: `TOKEN-LEXEME`, `TOKEN-VALUE`, `TOKEN-LINE`, and `TOKEN-SOURCE`. The `TOKEN-LEXEME` is the string that was parsed while the `TOKEN-VALUE` is the value returned by your lexer. For example, in the above sample lexer, the token `:NUMBER` will return `"10"` (a string) for the lexeme, but `10` (an integer) for the value.
+The tokens found can be inspected with the following reader functions: `TOKEN-LEXEME`, `TOKEN-CLASS`, `TOKEN-VALUE`, `TOKEN-LINE`, and `TOKEN-SOURCE`. The `TOKEN-LEXEME` is the string that was parsed while the `TOKEN-VALUE` is the value returned by your lexer. For example, in the above sample lexer, the token `:NUMBER` will return `"10"` (a string) for the lexeme, but `10` (an integer) for the value. The `TOKEN-CLASS` is what the parser sees (e.g. `:NUMBER`).
 
 Patterns that have no token body associated with them (e.g. the whitespace example above) are skipped. The token patterns are tried, in-order, so if there is any ambiguity the first one will win out (read: be careful!).
 

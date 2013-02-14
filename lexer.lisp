@@ -81,6 +81,7 @@
 
 (defclass token ()
   ((lexeme :initarg :lexeme :reader token-lexeme)
+   (class  :initarg :class  :reader token-class)
    (value  :initarg :value  :reader token-value)
    (line   :initarg :line   :reader token-line)
    (source :initarg :source :reader token-source))
@@ -139,7 +140,7 @@
 (defmethod print-object ((tok token) s)
   "Output a lexer token to a stream."
   (print-unreadable-object (tok s :type t)
-    (format s "~s" (token-lexeme tok))))
+    (format s "~s ~a" (token-lexeme tok) (token-class tok))))
 
 (defmethod make-load-form ((re re) &optional env)
   "Tell the system how to save and load a regular expression to a FASL."
@@ -201,7 +202,7 @@
   "Create a tokenizing function."
   (let ((lexer (gensym "lexer"))
         (value (gensym "value"))
-        (tok (gensym "token"))
+        (class (gensym "class"))
         (next-token (gensym "next-token"))
         (source (gensym "source"))
         (path (gensym "path"))
@@ -227,13 +228,14 @@
                                     ,(if (null body)
                                          `(go ,skip-token)
                                        `(return-from ,next-token
-                                          (multiple-value-bind (,tok ,value)
+                                          (multiple-value-bind (,class ,value)
                                               (progn ,@body)
-                                            (values ,tok (make-instance 'token
-                                                                        :lexeme lexeme
-                                                                        :line line
-                                                                        :value ,value
-                                                                        :source ,path))))))))))
+                                            (values ,class (make-instance 'token
+                                                                          :lexeme lexeme
+                                                                          :line line
+                                                                          :class ,class
+                                                                          :value ,value
+                                                                          :source ,path))))))))))
                     (error (make-condition 'lex-error :source ,source :lexer ,lexer)))))
            (prog1
                ,lexer
