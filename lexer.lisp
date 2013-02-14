@@ -193,9 +193,9 @@
         ($9 (intern "$9" *package*)))
     `(let ((,v ,match))
        (when ,v
-         (destructuring-bind (,$$ &optional ,$1 ,$2 ,$3 ,$4 ,$5 ,$6 ,$7 ,$8 ,$9)
+         (destructuring-bind (,$$ &optional ,$1 ,$2 ,$3 ,$4 ,$5 ,$6 ,$7 ,$8 ,$9 &rest _)
              (cons (match-string ,v) (match-captures ,v))
-           (declare (ignorable ,$$ ,$1 ,$2 ,$3 ,$4 ,$5 ,$6 ,$7 ,$8 ,$9))
+           (declare (ignorable ,$$ ,$1 ,$2 ,$3 ,$4 ,$5 ,$6 ,$7 ,$8 ,$9 _))
            (values (progn ,@body) t))))))
 
 (defmacro deflexer (make-lexer (&rest options) &body patterns)
