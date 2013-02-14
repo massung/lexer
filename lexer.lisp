@@ -44,6 +44,11 @@
    #:match-pos-start
    #:match-pos-end
 
+   ;; token functions
+   #:token-lexeme
+   #:token-line
+   #:token-source
+
    ;; lexer functions
    #:lex-next-token
    #:lex-lexeme
@@ -73,6 +78,13 @@
    (start-pos :initarg :start-pos :reader match-pos-start)
    (end-pos   :initarg :end-pos   :reader match-pos-end))
   (:documentation "Matched token."))
+
+(defclass token ()
+  ((lexeme :initarg :lexeme :reader token-lexeme)
+   (value  :initarg :value  :reader token-value)
+   (line   :initarg :line   :reader token-line)
+   (source :initarg :source :reader token-source))
+  (:documentation "Token created by a lexer."))
 
 (defclass lex-state ()
   ((source   :initarg :source   :reader lex-source)
@@ -123,6 +135,11 @@
   "Output a regular expression match to a stream."
   (print-unreadable-object (match s :type t)
     (format s "~s" (match-string match))))
+
+(defmethod print-object ((tok token) s)
+  "Output a lexer token to a stream."
+  (print-unreadable-object (tok s :type t)
+    (format s "~s" (token-lexeme tok))))
 
 (defmethod make-load-form ((re re) &optional env)
   "Tell the system how to save and load a regular expression to a FASL."
@@ -183,11 +200,14 @@
 (defmacro deflexer (make-lexer (&rest options) &body patterns)
   "Create a tokenizing function."
   (let ((lexer (gensym "lexer"))
+        (value (gensym "value"))
+        (tok (gensym "token"))
         (next-token (gensym "next-token"))
         (source (gensym "source"))
+        (path (gensym "path"))
         (skip-token (gensym "skip"))
         (match (gensym "match")))
-    `(defun ,make-lexer (,source)
+    `(defun ,make-lexer (,source &optional ,path)
        (let ((,lexer (make-instance 'lexer :lexeme nil :pos 0 :line 1)))
          (flet ((,next-token ()
                   (with-slots (pos line lexeme)
@@ -206,7 +226,14 @@
                                     (setf pos (match-pos-end ,match))
                                     ,(if (null body)
                                          `(go ,skip-token)
-                                       `(return-from ,next-token (progn ,@body))))))))
+                                       `(return-from ,next-token
+                                          (multiple-value-bind (,tok ,value)
+                                              (progn ,@body)
+                                            (values ,tok (make-instance 'token
+                                                                        :lexeme lexeme
+                                                                        :line line
+                                                                        :value ,value
+                                                                        :source ,path))))))))))
                     (error (make-condition 'lex-error :source ,source :lexer ,lexer)))))
            (prog1
                ,lexer
@@ -221,7 +248,7 @@
   ((exprs :error) (error 're-pattern-error))
 
   ;; either expression a or b (a|b)
-  ((compound simple :or compound) (either $1 $3))
+  ((compound compound :or simple) (either $1 $3))
   ((compound simple) $1)
 
   ;; simple, optional, and repition (?, *, +)
@@ -247,21 +274,22 @@
   ((expr :eol) (eol :match-newline-p *multi-line*))
   ((expr :none) (newline :match-newline-p *multi-line*))
 
-  ;; named sets
+  ;; sets of characters (named, [..], [^..])
   ((expr :one-of) (one-of $1))
   ((expr :none-of) (none-of $1))
+  ((expr :set set) $1)
 
-  ;; sets of characters ([..], [^..])
-  ((expr :set :none chars) (none-of $3 :case-fold *case-fold*))
-  ((expr :set chars) (one-of $2 :case-fold *case-fold*))
   ((expr :error) (error 're-pattern-error))
+
+  ;; inclusive and exclusive sets
+  ((set :none chars) (none-of $2 :case-fold *case-fold*))
+  ((set chars) (one-of $1 :case-fold *case-fold*))
 
   ;; character set (just a list of characters)
   ((chars :one-of chars) (append (coerce $1 'list) $2))
   ((chars :char :to :char chars) (append (range-chars $1 $3) $4))
   ((chars :eol chars) (cons #\$ $2))
   ((chars :any chars) (cons #\. $2))
-  ((chars :none chars) (cons #\^ $2))
   ((chars :capture chars) (cons #\( $2))
   ((chars :end-capture chars) (cons #\) $2))
   ((chars :maybe chars) (cons #\? $2))

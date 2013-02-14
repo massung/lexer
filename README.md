@@ -148,7 +148,7 @@ The pattern matching functionality provided - while very useful - is only a smal
 
 [LispWorks](http://www.lispworks.com) comes with a fantastic [`PARSERGEN`](http://www.lispworks.com/documentation/lw50/LWRM/html/lwref-433.htm) package that - given a grammar - will create a function to parse a series of tokens (see the [`defparser`](http://www.lispworks.com/documentation/lw60/LW/html/lw-301.htm#pgfId-886013) function). 
 
-The `LEXER` package comes with a similar macro: `deflexer`. The `deflexer` macro is called with a set of token/body pairs and produces a function that - when handed a string - creates a lexer object that can be used to slowly tokenize the string that was used to create it.
+The `LEXER` package comes with a similar macro: `deflexer`. The `deflexer` macro is called with a set of token/body pairs and produces a function that - when handed a string (and an optional source filename) - creates a lexer object that can be used to slowly tokenize the string that was used to create it.
 
 A simple example:
 
@@ -164,9 +164,15 @@ A simple example:
 
 The `LEXER` object has four methods that are used to either tokenize or inspect the current state of the itself. Of these, the most pertinent one is the `LEX-NEXT-TOKEN` method. This is a function that - when called - will return the next token in the source.
 
+	CL-USER > (funcall (lex-next-token *))
+	:IDENT
+	#<LEXER::TOKEN "x">
+
 Patterns that have no token body associated with them (e.g. the whitespace example above) are skipped. The token patterns are tried, in-order, so if there is any ambiguity the first one will win out (read: be careful!).
 
 *Note: whatever keyword options are passed to the lexer are also passed to all the token patterns compiled.*
+
+What the lexer does - in addition to merely tokenizing the input source for the parser - is bundle up tokens so that you can know where they came from. Each value returned by your lexer is bundled into a `token` object, which has 3 reader functions: `token-lexeme`, `token-line`, and `token-source`. These can be used to know what value was 
 
 Let's put the above lexer to some use by first creating a really simple grammar...
 
@@ -178,7 +184,7 @@ Let's put the above lexer to some use by first creating a really simple grammar.
 We can now send our lexer (with source) to the parser...
 
 	CL-USER > (my-parser (lex-next-token (my-lexer "x = 10")))
-	(:let "x" 10)
+	(:LET #<LEXER::TOKEN "x"> #<LEXER::TOKEN "10">)
 	NIL
 
 And done!
