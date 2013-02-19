@@ -21,7 +21,7 @@
   (require "parsergen"))
 
 (defpackage :lexer
-  (:use :cl :parsergen)
+  (:use :cl :lw :parsergen)
   (:nicknames :lex)
   (:export
    #:re
@@ -261,6 +261,7 @@
   ((simple expr) $1)
 
   ;; capture expression (x)
+  ((expr :capture :maybe compound :end-capture) $3)
   ((expr :capture compound :end-capture) (capture $2))
 
   ;; bounded expression
@@ -363,10 +364,8 @@
 
 (defun match-re (re s &key (start 0) (end (length s)) exact)
   "Check to see if a regexp pattern matches a string."
-  (flet ((capture (captures place)
-           (let ((start (car place))
-                 (end (cdr place)))
-             (cons (subseq s start end) captures))))
+  (flet ((capture (caps place)
+           (cons (subseq s (car place) (cdr place)) caps)))
     (with-input-from-string (source s :start start :end end)
       (let ((st (make-instance 'lex-state 
                                :source source
@@ -453,9 +452,10 @@
   #'(lambda (st)
       (with-slots (source captures)
           st
-        (let ((start (file-position source)))
+        (let ((capture (cons (file-position source) nil)))
+          (push capture captures)
           (when (funcall p st)
-            (push (cons start (file-position source)) captures))))))
+            (rplacd capture (file-position source)))))))
 
 (defun either (p1 p2)
   "Try one parse combinator, if it fails, try another."
@@ -491,21 +491,21 @@
 
 (defun ch (c &key case-fold)
   "Match an exact character."
-  (let ((test (if case-fold #'char-equal #'char=)))
+  (let ((test (if case-fold #'unicode-char-equal #'char=)))
     #'(lambda (st)
         (next st #'(lambda (x)
                      (and x (funcall test x c)))))))
 
 (defun one-of (cs &key case-fold)
   "Match any character from a set."
-  (let ((test (if case-fold #'char-equal #'char=)))
+  (let ((test (if case-fold #'unicode-char-equal #'char=)))
     #'(lambda (st)
         (next st #'(lambda (x)
                      (and x (find x cs :test test)))))))
 
 (defun none-of (cs &key case-fold)
   "Match any character not in a set."
-  (let ((test (if case-fold #'char-equal #'char=)))
+  (let ((test (if case-fold #'unicode-char-equal #'char=)))
     #'(lambda (st)
         (next st #'(lambda (x)
                      (and x (not (find x cs :test test))))))))

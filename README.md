@@ -106,15 +106,17 @@ Using parenthesis in a pattern will cause the matching text to be captured as a 
 	CL-USER > (match-captures *)
 	("123" "abc")
 
-Captures can be nested. The order in which they are captures is the order in which they are *closed*. For example:
+Captures can be nested. The order in which they are captures is the order in which they are **opened**. For example:
 
-	CL-USER > (match-re #/((%a)(%a+))/ "testing")
-	#<RE-MATCH "testing">
+	CL-USER > (match-captures (match-re #/(a(b(c)))(d)/ "abcd"))
+	("abc" "bc" "c" "d")
 
-	CL-USER > (match-captures *)
-	("t" "esting" "testing")
+Also, in addition to Lua-pattern captures, you can use typical regular expression ignored captures with `(?`:
 
-*Reminder: you can always use the `match-string` function to get at the full text that was matched.*
+	CL-USER > (match-captures (match-re #/(a(?b)+)(c)/ "abbbc"))
+	("abbb" "c")
+
+*Reminder: you can always use the `match-string` function to get at the full text that was matched and there's no need to capture the entire pattern.*
 
 # The `with-re-match` Macro
 
