@@ -38,6 +38,11 @@
    #:split-re
    #:replace-re
 
+   ;; re functions
+   #:re-pattern
+   #:re-case-fold-p
+   #:re-multi-line-p
+
    ;; match functions
    #:match-string
    #:match-captures
@@ -176,7 +181,16 @@
                                   (princ c re)))
                            (otherwise
                             (princ c re)))))))
-             (compile-re re))))
+             (let (i m)
+               (loop :for c := (read-char s nil nil t) :do
+                     (case c
+                       (#\i (setf i t))
+                       (#\m (setf m t))
+                       (otherwise
+                        (return (prog1
+                                    (compile-re re :case-fold i :multi-line m)
+                                  (when c
+                                    (unread-char c s)))))))))))
     (set-dispatch-macro-character #\# #\/ #'dispatch-re)))
 
 (defmacro with-re-match ((v match) &body body)
@@ -378,7 +392,7 @@
                 (end-pos (file-position source)))
             (when (or (not exact) (= end-pos end))
               (make-instance 're-match
-                             :match (if exact s (subseq s start end-pos))
+                             :match (subseq s start end-pos)
                              :captures caps
                              :start-pos start
                              :end-pos end-pos))))))))
