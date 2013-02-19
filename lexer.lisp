@@ -204,12 +204,13 @@
         ($6 (intern "$6" *package*))
         ($7 (intern "$7" *package*))
         ($8 (intern "$8" *package*))
-        ($9 (intern "$9" *package*)))
+        ($9 (intern "$9" *package*))
+        ($_ (intern "$_" *package*)))
     `(let ((,v ,match))
        (when ,v
-         (destructuring-bind (,$$ &optional ,$1 ,$2 ,$3 ,$4 ,$5 ,$6 ,$7 ,$8 ,$9 &rest _)
+         (destructuring-bind (,$$ &optional ,$1 ,$2 ,$3 ,$4 ,$5 ,$6 ,$7 ,$8 ,$9 &rest ,$_)
              (cons (match-string ,v) (match-captures ,v))
-           (declare (ignorable ,$$ ,$1 ,$2 ,$3 ,$4 ,$5 ,$6 ,$7 ,$8 ,$9 _))
+           (declare (ignorable ,$$ ,$1 ,$2 ,$3 ,$4 ,$5 ,$6 ,$7 ,$8 ,$9 ,$_))
            (values (progn ,@body) t))))))
 
 (defmacro deflexer (make-lexer (&rest options) &body patterns)
