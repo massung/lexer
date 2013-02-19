@@ -164,6 +164,8 @@ A simple example:
 	CL-USER > (my-lexer " x = 10 ")
 	#<LEXER::LEXER 21B0FA8A>
 
+*Note: whatever keyword options are passed to the lexer are also passed to all the token patterns compiled.*
+
 The `LEXER` object has four methods that are used to either tokenize or inspect the current state of the itself. Of these, the most pertinent one is the `LEX-NEXT-TOKEN` method. This is a function that - when called - will return the next token in the source.
 
 	CL-USER > (funcall (lex-next-token *))
@@ -172,11 +174,7 @@ The `LEXER` object has four methods that are used to either tokenize or inspect 
 
 The tokens found can be inspected with the following reader functions: `TOKEN-LEXEME`, `TOKEN-CLASS`, `TOKEN-VALUE`, `TOKEN-LINE`, and `TOKEN-SOURCE`. The `TOKEN-LEXEME` is the string that was parsed while the `TOKEN-VALUE` is the value returned by your lexer. For example, in the above sample lexer, the token `:NUMBER` will return `"10"` (a string) for the lexeme, but `10` (an integer) for the value. The `TOKEN-CLASS` is what the parser sees (e.g. `:NUMBER`).
 
-Patterns that have no token body associated with them (e.g. the whitespace example above) are skipped. The token patterns are tried, in-order, so if there is any ambiguity the first one will win out (read: be careful!).
-
-*Note: whatever keyword options are passed to the lexer are also passed to all the token patterns compiled.*
-
-What the lexer does - in addition to merely tokenizing the input source for the parser - is bundle up tokens so that you can know where they came from. Each value returned by your lexer is bundled into a `token` object, which has 3 reader functions: `token-lexeme`, `token-line`, and `token-source`. These can be used to know what value was 
+A common pattern is skipping lexemes (e.g. whitespace, comments in code) and jumping to the next token. To do this, the body of the pattern needs to just return `nil`. It can be an empty body like the whitespace example above, or it might actually do something with the token, but return `nil`.
 
 Let's put the above lexer to some use by first creating a really simple grammar...
 

@@ -225,17 +225,17 @@
                                     (incf line (count #\newline (match-string ,match)))
                                     (setf lexeme (match-string ,match))
                                     (setf pos (match-pos-end ,match))
-                                    ,(if (null body)
-                                         `(go ,skip-token)
-                                       `(return-from ,next-token
-                                          (multiple-value-bind (,class ,value)
-                                              (progn ,@body)
-                                            (values ,class (make-instance 'token
-                                                                          :lexeme lexeme
-                                                                          :line line
-                                                                          :class ,class
-                                                                          :value ,value
-                                                                          :source ,path))))))))))
+                                    (multiple-value-bind (,class ,value)
+                                        (progn ,@body)
+                                      (if (null ,class)
+                                          (go ,skip-token)
+                                        (return-from ,next-token
+                                          (values ,class (make-instance 'token
+                                                                        :lexeme lexeme
+                                                                        :line line
+                                                                        :class ,class
+                                                                        :value ,value
+                                                                        :source ,path))))))))))
                     (error (make-condition 'lex-error :source ,source :lexer ,lexer)))))
            (prog1
                ,lexer
