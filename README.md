@@ -195,46 +195,40 @@ And done!
 
 While the tokenizer function produced by `deflexer` reads tokens from a string, it doesn't actually parse the entire string and then keep handing out tokens. Instead, it's parsing the tokens on-demand each call. For this reason, when all the token patterns fail, a `lex-error` condition will be signaled that specifies where in the source string (line # and at which exact character offset) things have gone wrong.
 
-	CL-USER > (my-lexer "!x = 10")
+	CL-USER > (my-lexer "x = ! 10")
 	#<LEXER::LEXER 21A9725F>
 
 	CL-USER > (funcall (lex-next-token *))
 
-	Error: Parse error on line 1 near '!'
+	Error: LEX-ERROR error on line 1 near '!'
 	  1 (abort) Return to level 0.
 	  2 Return to top loop level 0.
 
 Work is being added for additional restart options like editing the source, viewing the line the error occured on, skipping the character, etc.
 
-If you come across an error in a parser, you can use the `LEX-LEXEME`, `LEX-POS`, and `LEX-LINE` functions on your `LEXER` object to determine where the parse error occurred.
+To add custom errors in your parsers, you can use a dynamic variable within your parser to generate a `LEX-ERROR` or a condition derived from it:
 
-	CL-USER > (defparser bad-parser
+	CL-USER > (define-condition my-parse-error (lex-error) ())
+	MY-PARSE-ERROR
+
+	CL-USER > (defvar *lexer*)
+	*LEXER*
+
+	CL-USER > (defparser my-parser
 	            ((start let) $1)
 	            ((let :ident :eq :number) `(:let ,$1 ,$3))
-	            ((let :error) (assert nil)))
-	BAD-PARSER
+	            ((let :error) (error (make-instance 'my-parse-error :lexer *lexer*))))
+	MY-PARSER
 
-	CL-USER > (setf k (my-lexer "x 10 20"))
-	#<LEXER::LEXER 21A9725F>
+	CL-USER > (let ((*lexer* (my-lexer "x == 20")))
+	            (my-parser (lex-next-token *lexer*)))
 
-	CL-USER > (bad-parser (lex-next-token k))
-
-	Error: The assertion NIL failed.
-	  1 (continue) Retry assertion.
-	  2 (abort) Return to level 0.
-	  3 Return to top loop level 0.
+	Error: MY-PARSE-ERROR on line 1 near "="
+	  1 (abort) Return to level 0.
+	  2 Return to top loop level 0.
 
 	Type :b for backtrace or :c <option number> to proceed.
 	Type :bug-form "<subject>" for a bug report template or :? for other options.
-
-	CL-USER : 1 > (lex-lexeme k)
-	"10"
-
-	CL-USER : 1 > (lex-line k)
-	1
-
-	CL-USER : 1 > (lex-pos k)
-	4
 
 # How It Works
 

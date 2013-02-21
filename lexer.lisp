@@ -27,9 +27,13 @@
    #:re
    #:re-match
 
+   ;; conditions
+   #:lex-error
+
    ;; macros
    #:with-re-match
    #:deflexer
+   #:parse
 
    ;; pattern functions
    #:compile-re
@@ -51,6 +55,8 @@
 
    ;; token functions
    #:token-lexeme
+   #:token-class
+   #:token-value
    #:token-line
    #:token-source
 
@@ -58,15 +64,7 @@
    #:lex-next-token
    #:lex-lexeme
    #:lex-pos
-   #:lex-line
-
-   ;; parse error functions
-   #:lex-error-source
-   #:lex-error-pos
-   #:lex-error-line
-
-   ;; create a parse error
-   #:lex-parse-error))
+   #:lex-line))
 
 (in-package :lexer)
 
@@ -86,14 +84,14 @@
 
 (defclass token ()
   ((lexeme :initarg :lexeme :reader token-lexeme)
-   (class  :initarg :class  :reader token-class)
-   (value  :initarg :value  :reader token-value)
    (line   :initarg :line   :reader token-line)
-   (source :initarg :source :reader token-source))
+   (source :initarg :source :reader token-source)
+   (class  :initarg :class  :reader token-class)
+   (value  :initarg :value  :reader token-value))
   (:documentation "Token created by a lexer."))
 
 (defclass lex-state ()
-  ((source   :initarg :source   :reader lex-source)
+  ((stream   :initarg :stream   :reader lex-stream)
    (start    :initarg :start    :reader lex-start)
    (captures :initarg :captures :reader lex-captures)
    (newline  :initarg :newline  :reader lex-newline))
@@ -103,30 +101,18 @@
   ((next   :initarg :next-token :reader lex-next-token)
    (lexeme :initarg :lexeme     :reader lex-lexeme)
    (pos    :initarg :pos        :reader lex-pos)
-   (line   :initarg :line       :reader lex-line))
+   (line   :initarg :line       :reader lex-line)
+   (source :initarg :source     :reader lex-source))
   (:documentation "Created by DEFLEXER, used to tokenize a string."))
 
 (define-condition lex-error (error)
-  ((source :initarg :source :reader lex-error-source)
-   (lexer  :initarg :lexer  :reader lex-error-lexer))
-  (:documentation "Error signaled when a deflexer fails all patterns.")
+  ((lexer :initarg :lexer :reader lex-error-lexer))
+  (:documentation "Error signaled when a DEFLEXER fails all patterns.")
   (:report (lambda (c s)
-             (with-slots (line pos)
+             (with-slots (lexeme line source)
                  (lex-error-lexer c)
-               (let ((char (char (lex-error-source c) pos)))
-                 (format s "Lexing error on line ~d near '~c'" line char))))))
-
-(define-condition lex-parse-error (lex-error)
-  ()
-  (:documentation "Error signaled when a parser fails.")
-  (:report (lambda (c s)
-             (let ((source (lex-error-source c)))
-               (with-slots (pos line lexeme)
-                   (lex-error-lexer c)
-                 (if (and lexeme (plusp (length lexeme)))
-                     (format s "Parse error on line ~d of ~s near ~s" line source lexeme)
-                   (let ((ch (char source pos)))
-                     (format s "Parse error on line ~d of ~s near '~c'." line source ch))))))))
+               (let ((class (type-of c)))
+                 (format s "~a on line ~d~@[ of ~s~]~@[ near ~s~]" class line source lexeme))))))
 
 (define-condition re-pattern-error (condition)
   ()
@@ -181,16 +167,7 @@
                                   (princ c re)))
                            (otherwise
                             (princ c re)))))))
-             (let (i m)
-               (loop :for c := (read-char s nil nil t) :do
-                     (case c
-                       (#\i (setf i t))
-                       (#\m (setf m t))
-                       (otherwise
-                        (return (prog1
-                                    (compile-re re :case-fold i :multi-line m)
-                                  (when c
-                                    (unread-char c s)))))))))))
+             (compile-re re))))
     (set-dispatch-macro-character #\# #\/ #'dispatch-re)))
 
 (defmacro with-re-match ((v match) &body body)
@@ -219,24 +196,24 @@
         (value (gensym "value"))
         (class (gensym "class"))
         (next-token (gensym "next-token"))
+        (string (gensym "string"))
         (source (gensym "source"))
-        (path (gensym "path"))
         (skip-token (gensym "skip"))
         (match (gensym "match")))
-    `(defun ,make-lexer (,source &optional ,path)
-       (let ((,lexer (make-instance 'lexer :lexeme nil :pos 0 :line 1)))
+    `(defun ,make-lexer (,string &optional ,source)
+       (let ((,lexer (make-instance 'lexer :source ,source :lexeme nil :pos 0 :line 1)))
          (flet ((,next-token ()
                   (with-slots (pos line lexeme)
                       ,lexer
                     (tagbody
                      ,skip-token
-                     (unless (< pos (length ,source))
+                     (unless (< pos (length ,string))
                        (return-from ,next-token))
                      ,@(loop :for token :in patterns :collect
                              (destructuring-bind (pattern &body body)
                                  token
                                (let ((re (apply #'compile-re (cons pattern options))))
-                                 `(with-re-match (,match (match-re ,re ,source :start pos))
+                                 `(with-re-match (,match (match-re ,re ,string :start pos))
                                     (incf line (count #\newline (match-string ,match)))
                                     (setf lexeme (match-string ,match))
                                     (setf pos (match-pos-end ,match))
@@ -248,13 +225,19 @@
                                           (values ,class (make-instance 'token
                                                                         :lexeme lexeme
                                                                         :line line
+                                                                        :source ,source
                                                                         :class ,class
-                                                                        :value ,value
-                                                                        :source ,path))))))))))
-                    (error (make-condition 'lex-error :source ,source :lexer ,lexer)))))
+                                                                        :value ,value))))))))))
+                    (setf lexeme (subseq ,string pos (1+ pos)))
+                    (error (make-condition 'lex-error :lexer ,lexer)))))
            (prog1
                ,lexer
              (setf (slot-value ,lexer 'next) #',next-token)))))))
+
+(defun parse (lexer string &optional source)
+  "Parse an input string with a lexer, return a list of all tokens."
+  (let ((next-token (lex-next-token (funcall (symbol-function lexer) string source))))
+    (loop :for token := (nth-value 1 (funcall next-token)) :while token :collect token)))
 
 (defparser re-parser
   ((start compound) $1)
@@ -268,7 +251,7 @@
   ((exprs simple) $1)
   ((exprs :error) (error 're-pattern-error))
 
-  ;; simple, optional, and repition (?, *, +)
+  ;; simple, optional, and repition (?, *, +, -)
   ((simple expr :maybe) (maybe $1))
   ((simple expr :many) (many $1))
   ((simple expr :many1) (many1 $1))
@@ -381,16 +364,16 @@
   "Check to see if a regexp pattern matches a string."
   (flet ((capture (caps place)
            (cons (subseq s (car place) (cdr place)) caps)))
-    (with-input-from-string (source s :start start :end end)
+    (with-input-from-string (stream s :start start :end end)
       (let ((st (make-instance 'lex-state 
-                               :source source
+                               :stream stream
                                :start start
                                :captures nil
                                :newline (or (zerop start)
                                             (char= (char s (1- start)) #\newline)))))
         (when (funcall (re-expression re) st)
           (let ((caps (reduce #'capture (lex-captures st) :initial-value nil))
-                (end-pos (file-position source)))
+                (end-pos (file-position stream)))
             (when (or (not exact) (= end-pos end))
               (make-instance 're-match
                              :match (subseq s start end-pos)
@@ -405,13 +388,12 @@
         (let ((match (match-re re s :start i :end end :exact nil)))
           (when match
             (return match))))
-    (loop
-     :with i := 0
-     :for match := (find-re re s :start i :end end)
-     :while match
-     :collect (prog1
-                  match
-                (setf i (match-pos-end match))))))
+    (loop :with i := 0
+          :for match := (find-re re s :start i :end end)
+          :while match
+          :collect (prog1
+                       match
+                     (setf i (match-pos-end match))))))
 
 (defun split-re (re s &key (start 0) (end (length s)) all coalesce-seps)
   "Split a string into one or more strings by regexp pattern match."
@@ -449,11 +431,11 @@
 
 (defun next (st pred)
   "Read the next character, update the pos, test against predicate."
-  (let ((c (read-char (lex-source st) nil nil)))
+  (let ((c (read-char (lex-stream st) nil nil)))
     (if (funcall pred c)
         c
       (when c
-        (unread-char c (lex-source st))))))
+        (unread-char c (lex-stream st))))))
 
 (defun bind (&rest ps)
   "Bind parse combinators together to compose a new combinator."
@@ -465,24 +447,24 @@
 (defun capture (p)
   "Push a capture of a combinator onto the lex state."
   #'(lambda (st)
-      (with-slots (source captures)
+      (with-slots (stream captures)
           st
-        (let ((capture (cons (file-position source) nil)))
+        (let ((capture (cons (file-position stream) nil)))
           (push capture captures)
           (when (funcall p st)
-            (rplacd capture (file-position source)))))))
+            (rplacd capture (file-position stream)))))))
 
 (defun either (p1 p2)
   "Try one parse combinator, if it fails, try another."
   #'(lambda (st)
-      (with-slots (source captures)
+      (with-slots (stream captures)
           st
-        (let ((pos (file-position source))
+        (let ((pos (file-position stream))
               (caps captures))
           (or (funcall p1 st)
               (progn
                 (setf captures caps)
-                (file-position source pos)
+                (file-position stream pos)
                 (funcall p2 st)))))))
 
 (defun any-char (&key match-newline-p)
@@ -550,4 +532,3 @@
 (defun between (b1 b2 &key match-newline-p)
   "Match everything between two characters."
   (bind b1 (many-til (any-char :match-newline-p match-newline-p) b2)))
-
