@@ -106,13 +106,14 @@
   (:documentation "Created by DEFLEXER, used to tokenize a string."))
 
 (define-condition lex-error (error)
-  ((lexer :initarg :lexer :reader lex-error-lexer))
+  ((reason :initarg :reason :reader lex-error-reason :initform :error)
+   (lexer  :initarg :lexer  :reader lex-error-lexer))
   (:documentation "Error signaled when a DEFLEXER fails all patterns.")
   (:report (lambda (c s)
              (with-slots (lexeme line source)
                  (lex-error-lexer c)
-               (let ((class (type-of c)))
-                 (format s "~a on line ~d~@[ of ~s~]~@[ near ~s~]" class line source lexeme))))))
+               (let ((reason (lex-error-reason c)))
+                 (format s "~a on line ~d~@[ of ~s~]~@[ near ~s~]" reason line source lexeme))))))
 
 (define-condition re-pattern-error (condition)
   ()
