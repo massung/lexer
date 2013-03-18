@@ -30,10 +30,14 @@
    ;; conditions
    #:lex-error
 
+   ;; dynamic variables
+   #:*lexbuf*
+
    ;; macros
    #:with-re-match
    #:deflexer
-   #:parse
+   #:with-lexbuf
+   #:tokenize
 
    ;; pattern functions
    #:compile-re
@@ -42,29 +46,30 @@
    #:split-re
    #:replace-re
 
-   ;; re functions
+   ;; re accessors
    #:re-pattern
    #:re-case-fold-p
    #:re-multi-line-p
 
-   ;; match functions
+   ;; match readers
    #:match-string
    #:match-captures
    #:match-pos-start
    #:match-pos-end
 
-   ;; token functions
+   ;; token readers
    #:token-lexeme
    #:token-class
    #:token-value
    #:token-line
    #:token-source
 
-   ;; lexer functions
-   #:lex-next-token
+   ;; lexbuf readers
    #:lex-lexeme
    #:lex-pos
-   #:lex-line))
+   #:lex-line
+   #:lex-source
+   #:lex-buf))
 
 (in-package :lexer)
 
@@ -97,22 +102,24 @@
    (newline  :initarg :newline  :reader lex-newline))
   (:documentation "Token pattern matching state."))
 
-(defclass lexer ()
-  ((next   :initarg :next-token :reader lex-next-token)
-   (lexeme :initarg :lexeme     :reader lex-lexeme)
-   (pos    :initarg :pos        :reader lex-pos)
-   (line   :initarg :line       :reader lex-line)
-   (source :initarg :source     :reader lex-source))
-  (:documentation "Created by DEFLEXER, used to tokenize a string."))
+(defclass lexbuf ()
+  ((string :initarg :string :reader lex-string)
+   (source :initarg :source :reader lex-source)
+   (pos    :initarg :pos    :reader lex-pos)
+   (line   :initarg :line   :reader lex-line)
+   (lexeme :initarg :lexeme :reader lex-lexeme))
+  (:documentation "The input source for a DEFLEXER."))
 
 (define-condition lex-error (error)
   ((reason :initarg :reason :reader lex-error-reason :initform :error)
-   (lexer  :initarg :lexer  :reader lex-error-lexer))
+   (buf    :initarg :lexbuf :reader lex-error-buf))
   (:documentation "Error signaled when a DEFLEXER fails all patterns.")
   (:report (lambda (c s)
-             (with-slots (lexeme line source)
-                 (lex-error-lexer c)
-               (let ((reason (lex-error-reason c)))
+             (with-slots (reason buf)
+                 c
+               (let ((source (lex-source buf))
+                     (line (lex-line buf))
+                     (lexeme (lex-lexeme buf)))
                  (format s "~a on line ~d~@[ of ~s~]~@[ near ~s~]" reason line source lexeme))))))
 
 (define-condition re-pattern-error (condition)
@@ -139,6 +146,8 @@
   (with-slots (pattern case-fold multi-line)
       re
     `(compile-re ,pattern :case-fold ,case-fold :multi-line ,multi-line)))
+
+(defvar *lexbuf*)
 
 (defvar *case-fold* nil "Case-insentitive comparison.")
 (defvar *multi-line* nil "Dot and EOL also match newlines.")
@@ -191,54 +200,58 @@
            (declare (ignorable ,$$ ,$1 ,$2 ,$3 ,$4 ,$5 ,$6 ,$7 ,$8 ,$9 ,$_))
            (values (progn ,@body) t))))))
 
-(defmacro deflexer (make-lexer (&rest options) &body patterns)
+(defmacro deflexer (lexer (&rest options) &body patterns)
   "Create a tokenizing function."
-  (let ((lexer (gensym "lexer"))
-        (value (gensym "value"))
+  (let ((value (gensym "value"))
         (class (gensym "class"))
-        (next-token (gensym "next-token"))
-        (string (gensym "string"))
-        (source (gensym "source"))
         (skip-token (gensym "skip"))
         (match (gensym "match")))
-    `(defun ,make-lexer (,string &optional ,source)
-       (let ((,lexer (make-instance 'lexer :source ,source :lexeme nil :pos 0 :line 1)))
-         (flet ((,next-token ()
-                  (with-slots (pos line lexeme)
-                      ,lexer
-                    (tagbody
-                     ,skip-token
-                     (unless (< pos (length ,string))
-                       (return-from ,next-token))
-                     ,@(loop :for token :in patterns :collect
-                             (destructuring-bind (pattern &body body)
-                                 token
-                               (let ((re (apply #'compile-re (cons pattern options))))
-                                 `(with-re-match (,match (match-re ,re ,string :start pos))
-                                    (incf line (count #\newline (match-string ,match)))
-                                    (setf lexeme (match-string ,match))
-                                    (setf pos (match-pos-end ,match))
-                                    (multiple-value-bind (,class ,value)
-                                        (progn ,@body)
-                                      (if (null ,class)
-                                          (go ,skip-token)
-                                        (return-from ,next-token
-                                          (values ,class (make-instance 'token
-                                                                        :lexeme lexeme
-                                                                        :line line
-                                                                        :source ,source
-                                                                        :class ,class
-                                                                        :value ,value))))))))))
-                    (setf lexeme (subseq ,string pos (1+ pos)))
-                    (error (make-condition 'lex-error :lexer ,lexer)))))
-           (prog1
-               ,lexer
-             (setf (slot-value ,lexer 'next) #',next-token)))))))
+    `(defun ,lexer ()
+       (with-slots (string source pos line lexeme)
+           *lexbuf*
+         (tagbody
+          ,skip-token
+          (unless (< pos (length string))
+            (return-from ,lexer))
+          ,@(loop :for token :in patterns :collect
+                  (destructuring-bind (pattern &body body)
+                      token
+                    (let ((re (apply #'compile-re (cons pattern options))))
+                      `(with-re-match (,match (match-re ,re string :start pos))
+                         (incf line (count #\newline (match-string ,match)))
+                         (setf lexeme (match-string ,match))
+                         (setf pos (match-pos-end ,match))
+                         (multiple-value-bind (,class ,value)
+                             (progn ,@body)
+                           (if (null ,class)
+                               (go ,skip-token)
+                             (return-from ,lexer
+                               (values ,class (make-instance 'token
+                                                             :lexeme lexeme
+                                                             :line line
+                                                             :source source
+                                                             :class ,class
+                                                             :value ,value))))))))))
+         (setf lexeme (string (char string pos)))
+         (error (make-condition 'lex-error :lexbuf *lexbuf*))))))
 
-(defun parse (lexer string &optional source)
+(defmacro with-lexbuf ((string &optional source) &body body)
+  "Create a global LEXBUF object to use in body."
+  `(let ((*lexbuf* (make-instance 'lexbuf
+                                  :string ,string
+                                  :source ,source
+                                  :pos 0
+                                  :line 1
+                                  :lexeme nil)))
+     (progn ,@body)))
+
+(defun tokenize (lexer string &optional source)
   "Parse an input string with a lexer, return a list of all tokens."
-  (let ((next-token (lex-next-token (funcall (symbol-function lexer) string source))))
-    (loop :for token := (nth-value 1 (funcall next-token)) :while token :collect token)))
+  (let ((lexer (symbol-function lexer)))
+    (with-lexbuf (string source)
+      (loop :for token := (nth-value 1 (funcall lexer))
+            :while token
+            :collect token))))
 
 (defparser re-parser
   ((start compound) $1)

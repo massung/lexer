@@ -150,9 +150,9 @@ The pattern matching functionality provided - while very useful - is only a smal
 
 [LispWorks](http://www.lispworks.com) comes with a fantastic [`PARSERGEN`](http://www.lispworks.com/documentation/lw50/LWRM/html/lwref-433.htm) package that - given a grammar - will create a function to parse a series of tokens (see the [`defparser`](http://www.lispworks.com/documentation/lw60/LW/html/lw-301.htm#pgfId-886013) function). 
 
-The `LEXER` package comes with a similar macro: `deflexer`. The `deflexer` macro is called with a set of token/body pairs and produces a function that - when handed a string (and an optional source filename) - creates a lexer object that can be used to slowly tokenize the string that was used to create it.
+The `LEXER` package comes with a similar macro: `deflexer`. The `deflexer` macro is called with a set of token/body pairs and produces a function that will parse the next token from a global `*LEXBUF*` object.
 
-A simple example:
+A simple lexer example:
 
 	CL-USER > (deflexer my-lexer (:case-fold t :multi-line t)
 	            ("%s+")
@@ -161,31 +161,53 @@ A simple example:
 	            ("="     :eq))
 	MY-LEXER
 
-	CL-USER > (my-lexer " x = 10 ")
-	#<LEXER::LEXER 21B0FA8A>
-
 *Note: whatever keyword options are passed to the lexer are also passed to all the token patterns compiled.*
 
-The `LEXER` object has four methods that are used to either tokenize or inspect the current state of the itself. Of these, the most pertinent one is the `LEX-NEXT-TOKEN` method. This is a function that - when called - will return the next token in the source.
+Each token parsed should return two values: the token class and optional value (please see the [Interface to lexical anylizer](http://www.lispworks.com/documentation/lw61/LW/html/lw-321.htm) to understand why this is).
 
-	CL-USER > (funcall (lex-next-token *))
+If the token class is `NIL` then the token is skipped and the next token in the source is returned instead. Otherwise, the value is wrapped in a `TOKEN` object, which can then be inspected with the following reader functions:
+
+	#'token-lexeme
+	#'token-source
+	#'token-line
+	#'token-class
+	#'token-value
+
+Now that we have a lexer function, the `with-lexbuf` macro can be used to parse tokens from a string:
+
+	(with-lexbuf (string &optional source) &body body)
+
+The `string` is the string to parse, while the optional `source` parameter should be used for a filename or something that can be used to identify where the string came from.
+
+	CL-USER > (with-lexbuf ("x=10") (my-lexer))
 	:IDENT
-	#<LEXER::TOKEN "x">
+	#<LEXER::TOKEN "x" IDENT>
 
-The tokens found can be inspected with the following reader functions: `TOKEN-LEXEME`, `TOKEN-CLASS`, `TOKEN-VALUE`, `TOKEN-LINE`, and `TOKEN-SOURCE`. The `TOKEN-LEXEME` is the string that was parsed while the `TOKEN-VALUE` is the value returned by your lexer. For example, in the above sample lexer, the token `:NUMBER` will return `"10"` (a string) for the lexeme, but `10` (an integer) for the value. The `TOKEN-CLASS` is what the parser sees (e.g. `:NUMBER`).
+Each subsequent call to the lexer within the macro body will produce the next token, until all tokens have been consumed, at which point `NIL` will be returned.
 
-A common pattern is skipping lexemes (e.g. whitespace, comments in code) and jumping to the next token. To do this, the body of the pattern needs to just return `nil`. It can be an empty body like the whitespace example above, or it might actually do something with the token, but return `nil`.
+The `LEXER` package also comes with a helper function that will parse an input string and return all the tokens:
 
-Let's put the above lexer to some use by first creating a really simple grammar...
+	(tokenize lexer-symbol string &optional source)
+
+The `lexer-symbol` is the name given to your lexer function. It will consume the entire source string and return a list of tokens.
+
+	CL-USER > (tokenize 'my-lexer "x=10")
+	(#<LEXER::TOKEN "x" IDENT>
+	 #<LEXER::TOKEN "=" EQ>
+	 #<LEXER::TOKEN "10" NUMBER>)
+
+# Parsing Tokens
+
+Let's put the above to some use by first creating a really simple grammar...
 
 	CL-USER > (defparser my-parser
 	            ((start let) $1)
                 ((let :ident :eq :number) (list :let $1 $3)))
 	MY-PARSER
 
-We can now send our lexer (with source) to the parser...
+Now we can call our parse function from within a `with-lexbuf` macro:
 
-	CL-USER > (my-parser (lex-next-token (my-lexer "x = 10")))
+	CL-USER > (with-lexbuf ("x=10") (my-parser #'my-lexer))
 	(:LET #<LEXER::TOKEN "x"> #<LEXER::TOKEN "10">)
 	NIL
 
@@ -193,42 +215,38 @@ And done!
 
 # Error Handling
 
-While the tokenizer function produced by `deflexer` reads tokens from a string, it doesn't actually parse the entire string and then keep handing out tokens. Instead, it's parsing the tokens on-demand each call. For this reason, when all the token patterns fail, a `lex-error` condition will be signaled that specifies where in the source string (line # and at which exact character offset) things have gone wrong.
+Since our lexer function parses the tokens on-demand each call, when all the token patterns fail, a `LEX-ERROR` condition will be signaled that specifies where in the source string (line # and at which exact character offset) things have gone wrong.
 
-	CL-USER > (my-lexer "x = ! 10")
-	#<LEXER::LEXER 21A9725F>
+	CL-USER > (parse 'my-lexer "x=!10")
 
-	CL-USER > (funcall (lex-next-token *))
-
-	Error: LEX-ERROR error on line 1 near '!'
+	Error: LEX-ERROR error on line 1 near "!"
 	  1 (abort) Return to level 0.
 	  2 Return to top loop level 0.
 
-Work is being added for additional restart options like editing the source, viewing the line the error occured on, skipping the character, etc.
+*Note: work is being done to add restart options like editing the source, viewing the line the error occured on, skipping the character, etc.*
 
-To add custom errors in your parsers, you can use a dynamic variable within your parser to generate a `LEX-ERROR` or a condition derived from it:
-
-	CL-USER > (define-condition my-parse-error (lex-error) ())
-	MY-PARSE-ERROR
-
-	CL-USER > (defvar *lexer*)
-	*LEXER*
+To add custom errors in your parsers, it is recommended that you simply raise a `LEX-ERROR` and then provide your own `:reason` initarg when creating an instance of it along with the global `*lexbuf*`:
 
 	CL-USER > (defparser my-parser
 	            ((start let) $1)
-	            ((let :ident :eq :number) `(:let ,$1 ,$3))
-	            ((let :error) (error (make-instance 'my-parse-error :lexer *lexer*))))
+	            ((let :ident :eq :number)
+	             `(:let ,$1 ,$3))
+	            ((let :error)
+	             (error 'lex-error
+	                    :reason "Expected number"
+	                    :lexbuf *lexbuf*)))
 	MY-PARSER
 
-	CL-USER > (let ((*lexer* (my-lexer "x == 20")))
-	            (my-parser (lex-next-token *lexer*)))
+Now that we have a parser that can raise the error, let's try sending something to it that should generate a syntax error:
 
-	Error: MY-PARSE-ERROR on line 1 near "="
+	CL-USER > (with-lexbuf ("x==10")
+	            (my-parser #'my-lexer))
+
+	Error: Expected number on line 1 near "="
 	  1 (abort) Return to level 0.
 	  2 Return to top loop level 0.
 
-	Type :b for backtrace or :c <option number> to proceed.
-	Type :bug-form "<subject>" for a bug report template or :? for other options.
+*Note: since the lexer tokenizes the buffer on-demand, regular `lex-error` conditions can be thrown as well when a token is hit that cannot be parsed.*
 
 # How It Works
 
