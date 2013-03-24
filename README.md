@@ -150,7 +150,11 @@ The pattern matching functionality provided - while very useful - is only a smal
 
 [LispWorks](http://www.lispworks.com) comes with a fantastic [`PARSERGEN`](http://www.lispworks.com/documentation/lw50/LWRM/html/lwref-433.htm) package that - given a grammar - will create a function to parse a series of tokens (see the [`defparser`](http://www.lispworks.com/documentation/lw60/LW/html/lw-301.htm#pgfId-886013) function). 
 
-The `LEXER` package comes with a similar macro: `deflexer`. The `deflexer` macro is called with a set of token/body pairs and produces a function that will parse the next token from a global `*LEXBUF*` object.
+The `LEXER` package comes with a similar macro: `deflexer`:
+
+	(deflexer lexer (&rest pattern-options) &body patterns)
+
+The `deflexer` macro is called with a set of token/body pairs and produces a function that will parse the next token from a global `*LEXBUF*` object.
 
 A simple lexer example:
 
@@ -161,11 +165,11 @@ A simple lexer example:
 	            ("="     :eq))
 	MY-LEXER
 
-*Note: whatever keyword options are passed to the lexer are also passed to all the token patterns compiled.*
+*Note: whatever pattern options are passed to the lexer are also passed to all the token patterns compiled.*
 
 Each token parsed should return two values: the token class and optional value (please see the [Interface to lexical anylizer](http://www.lispworks.com/documentation/lw61/LW/html/lw-321.htm) to understand why this is).
 
-If the token class is `NIL` then the token is skipped and the next token in the source is returned instead. Otherwise, the value is wrapped in a `TOKEN` object, which can then be inspected with the following reader functions:
+If the token class and value are both `NIL` then the token is skipped and the next token in the source is returned instead. Otherwise, the value is wrapped in a `TOKEN` object, which can then be inspected with the following reader functions:
 
 	#'token-lexeme
 	#'token-source
@@ -183,20 +187,48 @@ The `string` is the string to parse, while the optional `source` parameter shoul
 	:IDENT
 	#<LEXER::TOKEN "x" IDENT>
 
-Each subsequent call to the lexer within the macro body will produce the next token, until all tokens have been consumed, at which point `NIL` will be returned.
+Each subsequent call to the lexer within the macro body would produce the next token, until all tokens have been consumed, at which point `NIL` will be returned.
 
 The `LEXER` package also comes with a helper function that will parse an input string and return all the tokens:
 
 	(tokenize lexer-symbol string &optional source)
 
-The `lexer-symbol` is the name given to your lexer function. It will consume the entire source string and return a list of tokens.
+The `lexer-symbol` is the name given to your lexer function. It will consume the entire source string and return a list of tokens. Each call to the lexer function will also pass `lexer-args`.
 
 	CL-USER > (tokenize 'my-lexer "x=10")
 	(#<LEXER::TOKEN "x" IDENT>
 	 #<LEXER::TOKEN "=" EQ>
 	 #<LEXER::TOKEN "10" NUMBER>)
+	 
+# Embedded Lexers
 
-# Parsing Tokens
+Since the `*lexbuf*` is a dynamic variable that all lexers use when called, it is possible to switch lexers at-will while parsing or tokenizing.
+
+For example, in most programming languages, strings allow for escaped characters. Trying to come up with a pattern that handles all escape sequences would be nigh impossible. Instead, once it is determined that you are parsing a string, simply ask another lexer to parse the string and return it.
+
+Let's define a `string-lexer` that will recursively parse characters, prepending them to a list. 
+
+	CL-USER > (deflexer string-lexer ()
+	            ("\""        (values nil t))
+	            ("\\n"       (cons #\newline (string-lexer)))
+	            ("\\t"       (cons #\tab (string-lexer)))
+	            ("\\(.)"     (cons (char $1 0) (string-lexer)))
+	            ("."         (cons (char $$ 0) (string-lexer))))
+	STRING-LEXER
+
+Next, let's create a lexer that will call our `string-lexer` whenever we come across a quotation mark. We'll take the return value from the `string-lexer` and coerce it into a string token.
+	
+	CL-USER > (deflexer test-lexer ()
+	            ("\""        (values :string (coerce (string-lexer) 'string))))
+	TEST-LEXER
+
+Finally, let's give it a spin...
+
+	CL-USER> (with-lexbuf ("\"foo \\\"bar\\\"\"") (test-lexer))
+	:STRING
+	#<LEXER::TOKEN "\"foo \\\"bar\\\"\"" STRING>
+
+# Using PARSERGEN to Parse Tokens
 
 Let's put the above to some use by first creating a really simple grammar...
 
@@ -217,7 +249,7 @@ And done!
 
 Since our lexer function parses the tokens on-demand each call, when all the token patterns fail, a `LEX-ERROR` condition will be signaled that specifies where in the source string (line # and at which exact character offset) things have gone wrong.
 
-	CL-USER > (parse 'my-lexer "x=!10")
+	CL-USER > (tokenize 'my-lexer "x=!10")
 
 	Error: LEX-ERROR error on line 1 near "!"
 	  1 (abort) Return to level 0.
@@ -233,7 +265,7 @@ To add custom errors in your parsers, it is recommended that you simply raise a 
 	             `(:let ,$1 ,$3))
 	            ((let :error)
 	             (error 'lex-error
-	                    :reason "Expected number"
+	                    :reason "LET syntax error"
 	                    :lexbuf *lexbuf*)))
 	MY-PARSER
 
@@ -242,7 +274,7 @@ Now that we have a parser that can raise the error, let's try sending something 
 	CL-USER > (with-lexbuf ("x==10")
 	            (my-parser #'my-lexer))
 
-	Error: Expected number on line 1 near "="
+	Error: LET syntax error on line 1 near "="
 	  1 (abort) Return to level 0.
 	  2 Return to top loop level 0.
 
