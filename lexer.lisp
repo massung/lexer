@@ -202,13 +202,17 @@
 
 (defmacro with-lexbuf ((string &optional source) &body body)
   "Create a global LEXBUF object to use in body."
-  `(let ((*lexbuf* (make-instance 'lexbuf
-                                  :string ,string
-                                  :source ,source
-                                  :pos 0
-                                  :line 1
-                                  :lexeme nil)))
-     (progn ,@body)))
+  (let ((e (gensym)))
+    `(let ((*lexbuf* (make-instance 'lexbuf
+                                    :string ,string
+                                    :source ,source
+                                    :pos 0
+                                    :line 1
+                                    :lexeme nil)))
+       (handler-case
+           (progn ,@body)
+         (condition (,e)
+           (error 'lex-error :reason ,e :lexbuf *lexbuf*))))))
 
 (defmacro deflexer (lexer (&rest options) &body patterns)
   "Create a tokenizing function."
@@ -251,13 +255,14 @@
          (setf ,lexeme (string (char ,string ,pos)))
          (error (make-condition 'lex-error :lexbuf *lexbuf*))))))
 
-(defun tokenize (lexer string &optional source)
+(defun tokenize (lexer)
   "Parse an input string with a lexer, return a list of all tokens."
-  (let ((lexer (symbol-function lexer)))
-    (with-lexbuf (string source)
-      (loop :for token := (nth-value 1 (funcall lexer))
-            :while token
-            :collect token))))
+  (let* ((tl (list nil)) (hd tl))
+    (loop (multiple-value-bind (class token)
+              (funcall lexer)
+            (if (null class)
+                (return-from tokenize (rest tl))
+              (rplacd hd (setf hd (list token))))))))
 
 (defparser re-parser
   ((start compound) $1)
@@ -408,7 +413,7 @@
         (let ((match (match-re re s :start i :end end :exact nil)))
           (when match
             (return match))))
-    (loop :with i := 0
+    (loop :with i := start
           :for match := (find-re re s :start i :end end)
           :while match
           :collect (prog1
@@ -420,24 +425,24 @@
   (if (not all)
       (let ((match (find-re re s :start start :end end)))
         (if (null match)
-            s
+            (subseq s start end)
           (values (subseq s start (match-pos-start match))
-                  (subseq s (match-pos-end match)))))
-    (let* ((hd (list nil)) 
-           (tl hd)
-           (pos 0))
-      (flet ((push-match (&optional m)
-               (let ((s (subseq s pos (when m (match-pos-start m)))))
-                 (unless (and coalesce-seps (zerop (length s)))
-                   (setf tl (cdr (rplacd tl (list s)))))
-                 (setf pos (when m (match-pos-end m))))))
-        (loop :for sep :in (find-re re s :start start :end end :all t) :do
-          (push-match sep))
-        (push-match))
-      (cdr hd))))
+                  (subseq s (match-pos-end match) end))))
+    (let* ((hd (list nil)) (tl hd) (pos 0))
+      (do ((m (find-re re s :start start :end end)
+              (find-re re s :start pos :end end)))
+          ((null m)
+           (prog1
+               (rest tl)
+             (unless (and coalesce-seps (= pos (length s)))
+               (rplacd hd (list (subseq s pos))))))
+        (let ((split (subseq s pos (match-pos-start m))))
+          (unless (and coalesce-seps (zerop (length split)))
+            (setf hd (cdr (rplacd hd (list split)))))
+          (setf pos (match-pos-end m)))))))
 
 (defun replace-re (re with s &key (start 0) (end (length s)) all)
-  "Split a string into one or more strings by regexp pattern match."
+  "Replace patterns found within a string with a new value."
   (let ((matches (find-re re s :start start :end end :all all)))
     (unless all
       (setf matches (list matches)))
@@ -445,7 +450,7 @@
       (let ((pos 0))
         (loop :for match :in matches :do
           (let ((prefix (subseq s pos (match-pos-start match))))
-            (format rep "~a~a" prefix (funcall with match))
+            (format rep "~a~a" prefix (if (functionp with) (funcall with match) with))
             (setf pos (match-pos-end match))))
         (format rep (subseq s pos))))))
 

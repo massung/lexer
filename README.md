@@ -210,16 +210,16 @@ Let's define a `string-lexer` that will recursively parse characters, prepending
 
 	CL-USER > (deflexer string-lexer ()
 	            ("\""        (values nil t))
-	            ("\\n"       (cons #\newline (string-lexer)))
-	            ("\\t"       (cons #\tab (string-lexer)))
-	            ("\\(.)"     (cons (char $1 0) (string-lexer)))
-	            ("."         (cons (char $$ 0) (string-lexer))))
+	            ("\\n"       (values :char #\newline))
+	            ("\\t"       (values :char #\tab))
+	            ("\\(.)"     (values :char (char $1 0)))
+	            ("."         (values :char (char $$ 0))))
 	STRING-LEXER
 
 Next, let's create a lexer that will call our `string-lexer` whenever we come across a quotation mark. We'll take the return value from the `string-lexer` and coerce it into a string token.
 	
 	CL-USER > (deflexer test-lexer ()
-	            ("\""        (values :string (coerce (string-lexer) 'string))))
+	            ("\"" (values :string (map 'lw:text-string #'token-value (tokenize #'string-lexer)))))
 	TEST-LEXER
 
 Finally, let's give it a spin...
@@ -264,9 +264,7 @@ To add custom errors in your parsers, it is recommended that you simply raise a 
 	            ((let :ident :eq :number)
 	             `(:let ,$1 ,$3))
 	            ((let :error)
-	             (error 'lex-error
-	                    :reason "LET syntax error"
-	                    :lexbuf *lexbuf*)))
+	             (error "LET syntax error")))
 	MY-PARSER
 
 Now that we have a parser that can raise the error, let's try sending something to it that should generate a syntax error:
@@ -277,8 +275,6 @@ Now that we have a parser that can raise the error, let's try sending something 
 	Error: LET syntax error on line 1 near "="
 	  1 (abort) Return to level 0.
 	  2 Return to top loop level 0.
-
-*Note: since the lexer tokenizes the buffer on-demand, regular `lex-error` conditions can be thrown as well when a token is hit that cannot be parsed.*
 
 # How It Works
 
