@@ -159,7 +159,7 @@
              (compile-re re))))
     (set-dispatch-macro-character #\# #\/ #'dispatch-re)))
 
-(defmacro with-re-match ((v match &key when-no-match) &body body)
+(defmacro with-re-match ((v match &optional no-match) &body body)
   "Intern match symbols to execute a body."
   (let (($$ (intern "$$" *package*))
         ($1 (intern "$1" *package*))
@@ -174,7 +174,7 @@
         ($_ (intern "$_" *package*)))
     `(let ((,v ,match))
        (if (null ,v)
-           ,when-no-match
+           ,no-match
          (destructuring-bind (,$$ &optional ,$1 ,$2 ,$3 ,$4 ,$5 ,$6 ,$7 ,$8 ,$9 &rest ,$_)
              (cons (match-string ,v) (match-captures ,v))
            (declare (ignorable ,$$ ,$1 ,$2 ,$3 ,$4 ,$5 ,$6 ,$7 ,$8 ,$9 ,$_))
