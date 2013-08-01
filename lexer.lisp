@@ -57,13 +57,6 @@
    #:match-pos-start
    #:match-pos-end
 
-   ;; token readers
-   #:token-lexeme
-   #:token-class
-   #:token-value
-   #:token-line
-   #:token-source
-
    ;; lexbuf readers
    #:lex-lexeme
    #:lex-pos
@@ -86,14 +79,6 @@
    (start-pos :initarg :start-pos :reader match-pos-start)
    (end-pos   :initarg :end-pos   :reader match-pos-end))
   (:documentation "Matched token."))
-
-(defclass token ()
-  ((lexeme :initarg :lexeme :reader token-lexeme)
-   (line   :initarg :line   :reader token-line)
-   (source :initarg :source :reader token-source)
-   (class  :initarg :class  :reader token-class)
-   (value  :initarg :value  :reader token-value))
-  (:documentation "Token created by a lexer."))
 
 (defclass lex-state ()
   ((stream   :initarg :stream   :reader lex-stream)
@@ -118,9 +103,8 @@
              (with-slots (reason buf)
                  c
                (let ((source (lex-source buf))
-                     (line (lex-line buf))
-                     (lexeme (lex-lexeme buf)))
-                 (format s "~a on line ~d~@[ of ~s~]~@[ near ~s~]" reason line source lexeme))))))
+                     (line (lex-line buf)))
+                 (format s "~a on line ~d~@[ of ~s~]" reason line source))))))
 
 (define-condition re-pattern-error (condition)
   ()
@@ -135,11 +119,6 @@
   "Output a regular expression match to a stream."
   (print-unreadable-object (match s :type t)
     (format s "~s" (match-string match))))
-
-(defmethod print-object ((tok token) s)
-  "Output a lexer token to a stream."
-  (print-unreadable-object (tok s :type t)
-    (format s "~s ~a" (token-lexeme tok) (token-class tok))))
 
 (defmethod make-load-form ((re re) &optional env)
   "Tell the system how to save and load a regular expression to a FASL."
@@ -180,7 +159,7 @@
              (compile-re re))))
     (set-dispatch-macro-character #\# #\/ #'dispatch-re)))
 
-(defmacro with-re-match ((v match) &body body)
+(defmacro with-re-match ((v match &key when-no-match) &body body)
   "Intern match symbols to execute a body."
   (let (($$ (intern "$$" *package*))
         ($1 (intern "$1" *package*))
@@ -194,7 +173,8 @@
         ($9 (intern "$9" *package*))
         ($_ (intern "$_" *package*)))
     `(let ((,v ,match))
-       (when ,v
+       (if (null ,v)
+           ,when-no-match
          (destructuring-bind (,$$ &optional ,$1 ,$2 ,$3 ,$4 ,$5 ,$6 ,$7 ,$8 ,$9 &rest ,$_)
              (cons (match-string ,v) (match-captures ,v))
            (declare (ignorable ,$$ ,$1 ,$2 ,$3 ,$4 ,$5 ,$6 ,$7 ,$8 ,$9 ,$_))
@@ -214,55 +194,46 @@
          (condition (,e)
            (error 'lex-error :reason ,e :lexbuf *lexbuf*))))))
 
-(defmacro deflexer (lexer (&rest options) &body patterns)
+(defmacro deflexer (lexer (&rest re-options) &body patterns)
   "Create a tokenizing function."
-  (let ((value (gensym "value"))
-        (string (gensym "string"))
-        (source (gensym "source"))
-        (pos (gensym "pos"))
-        (line (gensym "line"))
-        (lexeme (gensym "lexeme"))
-        (class (gensym "class"))
-        (skip-token (gensym "skip"))
-        (match (gensym "match")))
+  (let ((value (gensym))
+        (string (gensym))
+        (pos (gensym))
+        (line (gensym))
+        (lexeme (gensym))
+        (token (gensym))
+        (next-token (gensym))
+        (match (gensym)))
     `(defun ,lexer ()
-       (with-slots ((,string string) (,source source) (,pos pos) (,line line) (,lexeme lexeme))
+       (with-slots ((,string string) (,pos pos) (,line line) (,lexeme lexeme))
            *lexbuf*
          (tagbody
-          ,skip-token
-          (unless (< ,pos (length ,string))
-            (return-from ,lexer))
-          ,@(loop :for token :in patterns :collect
-                  (destructuring-bind (pattern &body body)
-                      token
-                    (let ((re (apply #'compile-re (cons pattern options))))
+          ,next-token
+          ,@(loop :for pattern :in patterns :collect
+                  (destructuring-bind (p &body body)
+                      pattern
+                    (let ((re (apply #'compile-re (cons p re-options))))
                       `(with-re-match (,match (match-re ,re ,string :start ,pos))
                          (incf ,line (count #\newline (match-string ,match)))
                          (setf ,pos (match-pos-end ,match))
-                         (setf ,lexeme (match-string ,match))
-                         (multiple-value-bind (,class ,value)
+                         (multiple-value-bind (,token ,value)
                              (progn ,@body)
-                           (if (and (null ,class)
+                           (if (and (null ,token)
                                     (null ,value))
-                               (go ,skip-token)
-                             (return-from ,lexer
-                               (values ,class (make-instance 'token
-                                                             :lexeme (subseq ,string (match-pos-start ,match) ,pos)
-                                                             :line ,line
-                                                             :source ,source
-                                                             :class ,class
-                                                             :value ,value))))))))))
-         (setf ,lexeme (string (char ,string ,pos)))
-         (error (make-condition 'lex-error :lexbuf *lexbuf*))))))
+                               (go ,next-token)
+                             (progn
+                               (setf ,lexeme (subseq ,string (match-pos-start ,match) ,pos))
+                               (return-from ,lexer
+                                 (values ,token ,value)))))))))
+          (if (>= ,pos (length ,string))
+              (return-from ,lexer)
+            (error "Parse error near ~s" (string (char ,string ,pos)))))))))
 
 (defun tokenize (lexer)
-  "Parse an input string with a lexer, return a list of all tokens."
-  (let* ((tl (list nil)) (hd tl))
-    (loop (multiple-value-bind (class token)
-              (funcall lexer)
-            (if (null class)
-                (return-from tokenize (rest tl))
-              (rplacd hd (setf hd (list token))))))))
+  "Parse an input string with a lexer, return a list of all tokens parsed."
+  (loop :for token := (multiple-value-list (funcall lexer))
+        :while (car token)
+        :collect token))
 
 (defparser re-parser
   ((start compound) $1)
@@ -502,9 +473,7 @@
   "End of file or line."
   #'(lambda (st)
       (let ((x (next st #'identity)))
-        (if (and match-newline-p (char= x #\newline))
-            t
-          (null x)))))
+        (or (null x) (and match-newline-p (char= x #\newline))))))
 
 (defun newline (&key (match-newline-p t))
   "Start of file or line."
