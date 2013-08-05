@@ -403,10 +403,9 @@
       (do ((m (find-re re s :start start :end end)
               (find-re re s :start pos :end end)))
           ((null m)
-           (prog1
-               (rest tl)
-             (unless (and coalesce-seps (= pos (length s)))
-               (rplacd hd (list (subseq s pos))))))
+           (unless (and coalesce-seps (= pos (length s)))
+             (rplacd hd (list (subseq s pos))))
+           (rest tl))
         (let ((split (subseq s pos (match-pos-start m))))
           (unless (and coalesce-seps (zerop (length split)))
             (setf hd (cdr (rplacd hd (list split)))))
