@@ -103,8 +103,9 @@
              (with-slots (reason buf)
                  c
                (let ((source (lex-source buf))
-                     (line (lex-line buf)))
-                 (format s "~a on line ~d~@[ of ~s~]" reason line source))))))
+                     (line (lex-line buf))
+                     (lexeme (lex-lexeme buf)))
+                 (format s "~a on line ~d~@[ of ~s~]~@[ near ~s~]" reason line source lexeme))))))
 
 (define-condition re-pattern-error (condition)
   ()
