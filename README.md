@@ -274,9 +274,10 @@ Now that we have a parser that can raise the error, let's try sending something 
 
 Here are some lexers used to parse various file formats. As with this package, they are released under the Apache 2.0 license and are free to use in your own projects.
 
-* [JSON](!http://github.com/massung/json)
+* [JSON](http://github.com/massung/json)
+* [XML](http://github.com/massung/xml)
 
-More examples coming...
+More examples coming as I need them...
 
 # How It Works
 
