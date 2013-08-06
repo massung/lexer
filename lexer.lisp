@@ -416,7 +416,7 @@
   "Replace patterns found within a string with a new value."
   (let ((matches (find-re re s :start start :end end :all all)))
     (unless all
-      (setf matches (list matches)))
+      (setf matches (when matches (list matches))))
     (with-output-to-string (rep)
       (let ((pos 0))
         (loop :for match :in matches :do
