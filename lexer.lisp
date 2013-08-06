@@ -467,7 +467,9 @@
   "Expect a non-eoi character."
   #'(lambda (st)
       (next st #'(lambda (x)
-                   (and x (if match-newline-p t (char/= x #\newline)))))))
+                   (and x (if match-newline-p 
+                              t 
+                            (null (member x '(#\return #\linefeed)))))))))
 
 (defun eol (&key (match-newline-p t))
   "End of file or line."
