@@ -419,11 +419,16 @@
       (setf matches (when matches (list matches))))
     (with-output-to-string (rep)
       (let ((pos 0))
-        (loop :for match :in matches :do
-          (let ((prefix (subseq s pos (match-pos-start match))))
-            (format rep "~a~a" prefix (if (functionp with) (funcall with match) with))
-            (setf pos (match-pos-end match))))
-        (format rep (subseq s pos))))))
+        (loop :for match :in matches
+              :do (progn
+                    (princ (subseq s pos (match-pos-start match)) rep)
+                    (princ (cond
+                            ((functionp with) (funcall with match))
+                            ((stringp with) (string with))
+                            (t (error "~a is not a string or function." with)))
+                           rep)
+                    (setf pos (match-pos-end match))))
+        (princ (subseq s pos) rep)))))
 
 (defun next (st pred)
   "Read the next character, update the pos, test against predicate."
