@@ -27,17 +27,17 @@
    #:re
    #:re-match
 
-   ;; dynamic variables
-   #:*lexbuf*
-
-   ;; conditions
-   #:lex-error
-
    ;; macros
    #:with-re-match
    #:with-lexbuf
    #:deflexer
+
+   ;; dynamic symbols
+   #:*lexer*
+
+   ;; functions
    #:tokenize
+   #:parse
 
    ;; pattern functions
    #:compile-re
@@ -62,7 +62,14 @@
    #:lex-pos
    #:lex-line
    #:lex-source
-   #:lex-buf))
+   #:lex-buf
+
+   ;; token readers
+   #:token-line
+   #:token-source
+   #:token-class
+   #:token-value
+   #:token-lexeme))
 
 (in-package :lexer)
 
@@ -95,6 +102,14 @@
    (lexeme :initarg :lexeme :reader lex-lexeme))
   (:documentation "The input source for a DEFLEXER."))
 
+(defclass token ()
+  ((line   :initarg :line   :reader token-line)
+   (source :initarg :source :reader token-source)
+   (class  :initarg :class  :reader token-class)
+   (value  :initarg :value  :reader token-value)
+   (lexeme :initarg :lexeme :reader token-lexeme))
+  (:documentation "A parsed token from a lexbuf."))
+
 (define-condition lex-error (error)
   ((reason :initarg :reason :reader lex-error-reason :initform :error)
    (buf    :initarg :lexbuf :reader lex-error-buf))
@@ -121,6 +136,13 @@
   (print-unreadable-object (match s :type t)
     (format s "~s" (match-string match))))
 
+(defmethod print-object ((token token) s)
+  "Output a token to a stream."
+  (print-unreadable-object (token s :type t)
+    (with-slots (class value)
+        token
+      (format s "~a~@[ ~s~]" class value))))
+
 (defmethod make-load-form ((re re) &optional env)
   "Tell the system how to save and load a regular expression to a FASL."
   (with-slots (pattern case-fold multi-line)
@@ -128,6 +150,7 @@
     `(compile-re ,pattern :case-fold ,case-fold :multi-line ,multi-line)))
 
 (defvar *lexbuf*)
+(defvar *lexer*)
 
 (defvar *case-fold* nil "Case-insentitive comparison.")
 (defvar *multi-line* nil "Dot and EOL also match newlines.")
@@ -199,14 +222,15 @@
   "Create a tokenizing function."
   (let ((value (gensym))
         (string (gensym))
+        (source (gensym))
         (pos (gensym))
         (line (gensym))
         (lexeme (gensym))
-        (token (gensym))
+        (class (gensym))
         (next-token (gensym))
         (match (gensym)))
     `(defun ,lexer ()
-       (with-slots ((,string string) (,pos pos) (,line line) (,lexeme lexeme))
+       (with-slots ((,string string) (,source source) (,pos pos) (,line line) (,lexeme lexeme))
            *lexbuf*
          (tagbody
           ,next-token
@@ -217,24 +241,37 @@
                       `(with-re-match (,match (match-re ,re ,string :start ,pos))
                          (incf ,line (count #\newline (match-string ,match)))
                          (setf ,pos (match-pos-end ,match))
-                         (multiple-value-bind (,token ,value)
+                         (multiple-value-bind (,class ,value)
                              (progn ,@body)
-                           (if (and (null ,token)
-                                    (null ,value))
+                           (if (eq ,class :next-token)
                                (go ,next-token)
                              (progn
                                (setf ,lexeme (subseq ,string (match-pos-start ,match) ,pos))
                                (return-from ,lexer
-                                 (values ,token ,value)))))))))
-          (if (>= ,pos (length ,string))
-              (return-from ,lexer)
-            (error "Parse error near ~s" (string (char ,string ,pos)))))))))
+                                 (make-instance 'token
+                                                :line ,line
+                                                :source ,source
+                                                :class ,class
+                                                :value ,value
+                                                :lexeme ,lexeme))))))))))
+         (if (>= ,pos (length ,string))
+             (return-from ,lexer)
+           (error "Parse error near ~s" (string (char ,string ,pos))))))))
 
 (defun tokenize (lexer)
-  "Parse an input string with a lexer, return a list of all tokens parsed."
-  (loop :for token := (multiple-value-list (funcall lexer))
-        :while (car token)
-        :collect token))
+  "Create a function that can be used in a parsergen."
+  (let ((*lexer* lexer))
+    (loop :for token := (funcall *lexer*) :while token :collect token)))
+
+(defun parse (parser lexer)
+  "Set the lexer and parse the source with it."
+  (flet ((next-token ()
+           (let ((token (funcall *lexer*)))
+             (when token
+               (values (token-class token)
+                       (token-value token))))))
+    (let ((*lexer* lexer))
+      (funcall parser #'next-token))))
 
 (defparser re-parser
   ((start compound) $1)
