@@ -182,11 +182,12 @@ Each subsequent call to the lexer within the macro body would produce the next t
 
 The `LEXER` package also comes with a helper function that will parse an input string and return all the token found in a single list.
 
-	(tokenize lexer-symbol string &optional source)
+	(tokenize lexer)
 
-The `lexer-symbol` is the name given to your lexer function. It will consume the entire source string and return a list of tokens. Each call to the lexer function will also pass `lexer-args`.
+The `lexer` is your lexer function. It will consume the entire `*lexbuf*` and return a list of tokens.
 
-	CL-USER > (with-lexbuf ("x=10") (tokenize #'my-lexer)) (#<LEXER::TOKEN IDENT "x">
+	CL-USER > (with-lexbuf ("x=10") (tokenize #'my-lexer))
+	(#<LEXER::TOKEN IDENT "x">
 	 #<LEXER::TOKEN EQ>
 	 #<LEXER::TOKEN NUMBER 10>)
 
@@ -205,7 +206,7 @@ Since our lexer returns tokens, and the parser expects multiple values for class
 
 	(parse parser lexer)
 
-Pass your `parsergen` function and `lexer` function to the `parse` function from within a `*lexbuf*` and it will tokenize (on-demand) and hand those tokens to the parser.
+Pass your `parsergen` function and `lexer` function to `parse` and it will tokenize (on-demand) and pass them to the parser.
 
 	CL-USER > (with-lexbuf ("x=10") (parse #'my-parser #'my-lexer))
 	(:LET "x" 10)
@@ -215,13 +216,12 @@ And done!
 
 # Using Different Lexical Rules
 
-Often times, you will be parsing text that has different lexical rules given the current context. For example, HTML allows for embedded JavaScript between `<script>` tags.
+Often times, you will be parsing text that has different lexical rules given the current context. For example, HTML allows embedding JavaScript between `<script>` tags.
 
-This is easily handled because the current lexer being used by the parser is `*lexer*`, and you can change it on-the-fly from within your lexers! Let's try it out...
+This is easily handled because the current lexer being used by the parser is the dynamic variable `*lexer*`. And you can change it on-the-fly from within your lexers! Let's try it out...
 
 	CL-USER > (deflexer csv-lexer (:multi-line t)
 	            ("%s+"        :next-token)
-	            ("%n+"        :newline)
 	            (","          :comma)
 	            ("\""         (prog1
 	                              :quote
@@ -229,7 +229,7 @@ This is easily handled because the current lexer being used by the parser is `*l
 	            ("%d+"        (values :int (parse-integer $$))))
 	CSV-LEXER
 
-This simple CSV lexer should be able to parse strings and integers. And strings should be able to contain commas. Notice how when we hit a `:quote` token that we also switch the `*lexer*` to using a `string-lexer`. Let's make it now...
+This simple CSV lexer should be able to parse strings and integers separated by commas. And strings should be able to contain commas. Notice how when we hit a `:quote` token that we also switch the `*lexer*` to using a `string-lexer`...
 
 	CL-USER > (deflexer string-lexer ()
 	            ("\""         (prog1
