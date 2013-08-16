@@ -154,109 +154,134 @@ The `LEXER` package comes with a similar macro: `deflexer`:
 
 	(deflexer lexer (&rest pattern-options) &body patterns)
 
-The `deflexer` macro is called with a set of token/body pairs and produces a function that will parse the next token from a global `*LEXBUF*` object.
+The `deflexer` macro is called with a set of pattern/token pairs and produces a function that will parse the next token from a global `lexbuf` object.
 
 A simple lexer example:
 
 	CL-USER > (deflexer my-lexer (:case-fold t :multi-line t)
-	            ("%s+"   :next-token)
-	            ("="     :eq)
-	            ("%d+"   (values :number (parse-integer $$)))
-	            ("%a%w*" (values :ident $$)))
+	            ("%s+")
+	            ("="     (values :eq))
+	            ("%a%w*" (values :ident $$))
+	            ("%d+"   (values :int (parse-integer $$))))
 	MY-LEXER
 
-Every pattern in the lexer can have an optional body. While the body can return whatever it likes, it is generally expected that the each pattern returns multiple values: the token class and an optional value (please see the [Interface to lexical anylizer](http://www.lispworks.com/documentation/lw61/LW/html/lw-321.htm) to understand why this is).
+Every pattern in the lexer can have an optional form that will execute when the pattern is matched. If the form is omitted (or returns `nil`) then the token is skipped and the next token in the `lexbuf` is returned.
 
-The `:next-token` keyword is special. Returning this as your token's class will tell the lexer to skip the token and - instead - return the next token in the source.
+While inside the body of the pattern expression, all the `with-re-match` symbols are available to use (`$$`, `$1`, `$2`, ...). And each form should return a `token-class` and an optional `token-value`. These will be used to create the returned token (please see the [Interface to lexical anylizer](http://www.lispworks.com/documentation/lw61/LW/html/lw-321.htm) to understand why this is).
 
-Now that we have a lexer function, the `with-lexbuf` macro can be used to parse tokens from a string:
+Now that we have a lexer function, the `tokenize` function can be called to create a `lexbuf` object and call the lexer until `lexbuf` has been exhausted.
 
-	(with-lexbuf (string &optional source) &body body)
-
-The `string` is the string to parse, while the optional `source` parameter should be used for a filename or something that can be used to identify where the string came from.
-
-	CL-USER > (with-lexbuf ("x=10") (my-lexer))
-	#<LEXER::TOKEN IDENT "x">
-
-Each subsequent call to the lexer within the macro body would produce the next token, until all tokens have been consumed, at which point `NIL` is returned.
-
-The `LEXER` package also comes with a helper function that will parse an input string and return all the token found in a single list.
-
-	(tokenize lexer)
-
-The `lexer` is your lexer function. It will consume the entire `*lexbuf*` and return a list of tokens.
-
-	CL-USER > (with-lexbuf ("x=10") (tokenize #'my-lexer))
+	CL-USER > (tokenize #'my-lexer "x = 10")
 	(#<LEXER::TOKEN IDENT "x">
 	 #<LEXER::TOKEN EQ>
-	 #<LEXER::TOKEN NUMBER 10>)
+	 #<LEXER::TOKEN INT 10>)
 
-We now have a list of tokens to parse...
+*NOTE: The `tokenize` function also takes an optional `source` argument that can be used to identify where the string being parsed came from.*
+
+If all the patterns in your lexer function fail to match, then a `lex-error` condition is signaled, letting you know exactly where the problem is located at.
+
+	CL-USER > (tokenize #'my-lexer "x = $10" "REPL")
+	Error: Lexing error on line 1 of "REPL" near "$"
+	  1 (abort) Return to level 0.
+	  2 Return to top loop level 0.
+
+Now that we can generate a list of tokens, we can analyze them.
 
 # Using PARSERGEN to Parse Tokens
 
-Let's put the above to some use by first creating a really simple grammar...
+Let's create a simple grammar.
 
 	CL-USER > (defparser my-parser
 	            ((start let) $1)
-                ((let :ident :eq :number) (list :let $1 $3)))
+                ((let :ident :eq :int)
+                 `(:let ,$1 ,$3))
+                ((let :error)
+                 (error "Invalid LET syntax")))
 	MY-PARSER
 
 Since our lexer returns tokens, and the parser expects multiple values for class/value, we need a helper function to spit out the next token. The `lexer` package comes with just such a helper function:
 
-	(parse parser lexer)
+	(parse parser tokens)
 
-Pass your `parsergen` function and `lexer` function to `parse` and it will tokenize (on-demand) and pass them to the parser.
+Pass your `parsergen` function and list of tokens to `parse`, and it will hand the parser tokens (the class and value) as needed.
 
-	CL-USER > (with-lexbuf ("x=10") (parse #'my-parser #'my-lexer))
+	CL-USER > (parse #'my-parser (tokenize #'my-lexer "x = 10"))
 	(:LET "x" 10)
 	NIL
 
+In addition, if - while parsing - an error is signaled, it will be handled and re-signaled as a `lex-error`, indicating the error and where it occurred in the parse stream.
+
+	CL-USER > (parse #'my-parser (tokenize #'my-lexer "x = 10 20"))
+	Error: Invalid LET syntax on line 1 near "20"
+	  1 (abort) Return to level 0.
+	  2 Return to top loop level 0.
+  
 And done!
 
-# Using Different Lexical Rules
+# Using Multiple Lexical Rules
 
 Often times, you will be parsing text that has different lexical rules given the current context. For example, HTML allows embedding JavaScript between `<script>` tags.
 
-This is easily handled because the current lexer being used by the parser is the dynamic variable `*lexer*`. And you can change it on-the-fly from within your lexers! Let's try it out...
+This is easily handled since the lexer is actually a stack of rules. The functions `push-lexer` and `pop-lexer` are used in pattern bodies to dynamically switch the active lexer while tokenizing.
 
-	CL-USER > (deflexer csv-lexer (:multi-line t)
-	            ("%s+"        :next-token)
-	            (","          :comma)
-	            ("\""         (prog1
-	                              :quote
-	                            (setf *lexer* #'string-lexer)))
-	            ("%d+"        (values :int (parse-integer $$))))
+	;; push a new lexer, return a token
+	(push-lexer lexer &optional class value)
+	
+	;; pop the current lexer, return a token
+	(pop-lexer &optional class value)
+	
+Additionally, you may return a `token-class` and `token-value` while pushing or popping the current lexer.
+
+*NOTE: Remember, if you return a `nil` token, the token is skipped. Use this feature to instantly start returning tokens from a new lexer!*
+
+Let's give this a spin by creating a simple CSV parser. It should be able to parse integers and strings, and strings should be able to escape characters and contain commas.
+
+First, let's define the CSV lexer:
+
+	CL-USER > (deflexer csv-lexer ()
+	            ("%s+")
+
+	            ;; tokens
+	            (","        (values :comma))
+	            ("%-?%d+"   (values :int (parse-integer $$)))
+
+	            ;; string lexer
+	            ("\""       (push-lexer #'string-lexer :quote)))
 	CSV-LEXER
 
-This simple CSV lexer should be able to parse strings and integers separated by commas. And strings should be able to contain commas. Notice how when we hit a `:quote` token that we also switch the `*lexer*` to using a `string-lexer`...
+Notice how when we hit a `"` character, we're going to push a new lexer and return a `:quote` token. The `:quote` token will signal to the grammar that we're now parsing a string.
 
-	CL-USER > (deflexer string-lexer ()
-	            ("\""         (prog1
-	                              :quote
-	                            (setf *lexer* #'csv-lexer)))
-	            ("\\n"        (values :chars (string #\newline)))
-	            ("\\(.)"      (values :chars $1))
-	            ("[^\\\"]+"   (values :chars $$)))
+Next, let's define our string lexer.
+
+	CL-USER > (deflexer string-lexer (:multi-line t)
+	            ("\""       (pop-lexer :quote))
+
+	            ;; characters
+	            ("\\n"      (values :chars #\newline))
+	            ("\\t"      (values :chars #\tab))
+	            ("\\(.)"    (values :chars $1))
+	            ("[^\\\"]+" (values :chars $$))
+
+	            ;; end of line/source
+	            ("$"        (error "Unterminated string")))
 	STRING-LEXER
 
-The string lexer handles escaped character (newline is named, all other characters are just passed through) and when another `:quote` token is hit it switches back to the `csv-lexer`.
+This lexer has several interesting things going on. First, we see that when we find the next `"` character that we pop the lexer (returning to the CSV lexer) and also return a `:quote` token. Next, we can see that it handles escaped characters and then any number of characters up until the next backspace (`\\`) or quote (`"`). Finally, if it reaches the end of the line or file, it will signal an error.
 
-Let's see what we get when we tokenize a CSV string...
+*NOTE: The `#/$/` regular expression pattern will only match newlines if `:multi-line` is set to `T`.*
 
-	CL-USER > (with-lexbuf ("1,2,\"hello, world!\", 100")
-	            (tokenize #'csv-lexer))
+Let's try tokenizing to see what we get.
+
+	CL-USER > (tokenize #'csv-lexer "1,\"hi\",2")
 	(#<LEXER::TOKEN INT 1>
 	 #<LEXER::TOKEN COMMA>
-	 #<LEXER::TOKEN INT 2>
-	 #<LEXER::TOKEN COMMA>
 	 #<LEXER::TOKEN QUOTE>
-	 #<LEXER::TOKEN CHARS "hello, world!">
+	 #<LEXER::TOKEN CHARS "hi">
 	 #<LEXER::TOKEN QUOTE>
 	 #<LEXER::TOKEN COMMA>
-	 #<LEXER::TOKEN INT 100>)
+	 #<LEXER::TOKEN INT 2>)
 
-Perfect! Now let's write the parser...
+Perfect! Now let's write the grammar...
 
 	CL-USER > (defparser csv-parser
 	            ((start values) $1)
@@ -268,6 +293,7 @@ Perfect! Now let's write the parser...
 	            ;; a single value
 	            ((value :quote chars) (coerce $2 'string))
 	            ((value :int) $1)
+	            ((value :error) (error "Illegal CSV"))
 
 	            ;; strings to concatenate
 	            ((chars :chars chars) (string-append $1 $2))
@@ -275,22 +301,11 @@ Perfect! Now let's write the parser...
 
 And let's give it a spin:
 
-	CL-USER > (with-lexbuf ("1, 2, \"hello, world!\", 4")
-	            (parse #'csv-parser #'csv-lexer))
-	(1 2 "hello, world!" 4)
+	CL-USER > (parse #'csv-parser (tokenize #'csv-lexer "1,\"hi\",2"))
+	(1 "hi" 2)
 	NIL
-
-# Error Handling
-
-Since our lexer function parses the tokens on-demand each call, when all the token patterns fail, a `lex-error` condition will be signaled that specifies where in the source (line # and lexeme) things have gone wrong.
-
-	CL-USER > (with-lexbuf ("x=!10") (tokenize #'my-lexer))
-
-	Error: Parse error near "!" on line 1
-	  1 (abort) Return to level 0.
-	  2 Return to top loop level 0.
-
-Any condition signaled while within a `*lexbuf*` scope will be re-signaled as the `lex-error-reason` for the halting of tokenizing/parsing. So feel free to throw custom errors from within your parser. Since tokenizing is performed on-demand, you'll know the exact line and source that caused the error.
+	
+That's it!
 
 # More (Usable) Examples
 
@@ -324,11 +339,11 @@ The `deflexer` macro builds a function that checks each of the token patterns in
 
 	(block next-token
 	  (tagbody
-	   skip-token
+	   next-token
 	   (for-each pattern
 	     (when (match-re pattern source)
            (if (null body)
-               (go skip-token)
+               (go next-token)
              (return-from next-token ,@body))))
        (error token-fail)))
 
