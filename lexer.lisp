@@ -35,6 +35,7 @@
    #:slurp
    #:push-lexer
    #:pop-lexer
+   #:swap-lexer
    #:tokenize
    #:parse
 
@@ -229,14 +230,15 @@
                          (setf ,lexeme (subseq ,string (match-pos-start ,match) ,pos))
                          (multiple-value-bind (,class ,value)
                              (progn ,@body)
-                           (if (null ,class)
+                           (if (eq ,class :next-token)
                                (go ,next-token)
-                             (return (make-instance 'token
-                                                    :class ,class
-                                                    :value ,value
-                                                    :line ,line
-                                                    :source ,source
-                                                    :lexeme ,lexeme))))))))
+                             (return (when ,class
+                                       (make-instance 'token
+                                                      :class ,class
+                                                      :value ,value
+                                                      :line ,line
+                                                      :source ,source
+                                                      :lexeme ,lexeme)))))))))
           (unless (>= ,pos (length ,string))
             (error (make-instance 'lex-error
                                   :reason "Lexing error"
@@ -252,17 +254,23 @@
           seq
         (setf (fill-pointer seq) (read-sequence seq stream))))))
 
-(defun push-lexer (lexer &optional class value)
+(defun push-lexer (lexer class &optional value)
   "Push a new lexer and return a token."
   (multiple-value-prog1
       (values class value)
     (push lexer *lexer*)))
 
-(defun pop-lexer (&optional class value)
+(defun pop-lexer (class &optional value)
   "Pop the top lexer and return a token."
   (multiple-value-prog1
       (values class value)
     (pop *lexer*)))
+
+(defun swap-lexer (lexer class &optional value)
+  "Set the current lexer and return a token."
+  (multiple-value-prog1
+      (values class value)
+    (rplaca *lexer* lexer)))
 
 (defun tokenize (lexer string &optional source)
   "Create a function that can be used in a parsergen."

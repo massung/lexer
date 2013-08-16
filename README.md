@@ -159,13 +159,15 @@ The `deflexer` macro is called with a set of pattern/token pairs and produces a 
 A simple lexer example:
 
 	CL-USER > (deflexer my-lexer (:case-fold t :multi-line t)
-	            ("%s+")
+	            ("%s+"   (values :next-token))
 	            ("="     (values :eq))
 	            ("%a%w*" (values :ident $$))
 	            ("%d+"   (values :int (parse-integer $$))))
 	MY-LEXER
 
-Every pattern in the lexer can have an optional form that will execute when the pattern is matched. If the form is omitted (or returns `nil`) then the token is skipped and the next token in the `lexbuf` is returned.
+Every pattern in the lexer can have an optional form that will execute when the pattern is matched. If the form is omitted (or returns `nil`), that signals to the tokenizer that there is nothing more to parse. If the keyword `:next-token` is returned from the form, then the token parsed is skipped and the next token in the stream is returned instead.
+
+*NOTE: Returning `:next-token` is the primary method of skipping whitespace and comments.*
 
 While inside the body of the pattern expression, all the `with-re-match` symbols are available to use (`$$`, `$1`, `$2`, ...). And each form should return a `token-class` and an optional `token-value`. These will be used to create the returned token (please see the [Interface to lexical anylizer](http://www.lispworks.com/documentation/lw61/LW/html/lw-321.htm) to understand why this is).
 
@@ -222,13 +224,16 @@ And done!
 
 Often times, you will be parsing text that has different lexical rules given the current context. For example, HTML allows embedding JavaScript between `<script>` tags.
 
-This is easily handled since the lexer is actually a stack of rules. The functions `push-lexer` and `pop-lexer` are used in pattern bodies to dynamically switch the active lexer while tokenizing.
+This is easily handled since the lexer is actually a stack of rules. The functions `push-lexer`, `pop-lexer`, and `swap-lexer` are used in pattern bodies to dynamically switch the active lexer while tokenizing.
 
 	;; push a new lexer, return a token
-	(push-lexer lexer &optional class value)
+	(push-lexer lexer class &optional value)
 	
 	;; pop the current lexer, return a token
-	(pop-lexer &optional class value)
+	(pop-lexer class &optional value)
+
+	;; swap to a different lexer, return a token
+	(swap-lexer lexer class &optional value)
 	
 Additionally, you may return a `token-class` and `token-value` while pushing or popping the current lexer.
 
