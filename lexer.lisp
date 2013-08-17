@@ -196,12 +196,12 @@
         ($9 (intern "$9" *package*))
         ($_ (intern "$_" *package*)))
     `(let ((,v ,match))
-       (if (null ,v)
-           ,no-match
-         (destructuring-bind (,$$ &optional ,$1 ,$2 ,$3 ,$4 ,$5 ,$6 ,$7 ,$8 ,$9 &rest ,$_)
-             (cons (match-string ,v) (match-captures ,v))
-           (declare (ignorable ,$$ ,$1 ,$2 ,$3 ,$4 ,$5 ,$6 ,$7 ,$8 ,$9 ,$_))
-           (values (progn ,@body) t))))))
+       (destructuring-bind (&optional ,$$ ,$1 ,$2 ,$3 ,$4 ,$5 ,$6 ,$7 ,$8 ,$9 &rest ,$_)
+           (if (null ,v)
+               (prog1 nil (setf ,v ,no-match))
+             (cons (match-string ,v) (match-captures ,v)))
+         (declare (ignorable ,$$ ,$1 ,$2 ,$3 ,$4 ,$5 ,$6 ,$7 ,$8 ,$9 ,$_))
+         (values (progn ,@body) t)))))
 
 (defmacro deflexer (lexer (&rest re-options) &body patterns)
   "Create a tokenizing function."
@@ -225,20 +225,21 @@
                       pattern
                     (let ((re (apply #'compile-re (cons p re-options))))
                       `(with-re-match (,match (match-re ,re ,string :start ,pos))
-                         (incf ,line (count #\newline (match-string ,match)))
-                         (setf ,pos (match-pos-end ,match))
-                         (setf ,lexeme (subseq ,string (match-pos-start ,match) ,pos))
-                         (multiple-value-bind (,class ,value)
-                             (progn ,@body)
-                           (if (eq ,class :next-token)
-                               (go ,next-token)
-                             (return (when ,class
-                                       (make-instance 'token
-                                                      :class ,class
-                                                      :value ,value
-                                                      :line ,line
-                                                      :source ,source
-                                                      :lexeme ,lexeme)))))))))
+                         (when ,match
+                           (incf ,line (count #\newline (match-string ,match)))
+                           (setf ,pos (match-pos-end ,match))
+                           (setf ,lexeme (subseq ,string (match-pos-start ,match) ,pos))
+                           (multiple-value-bind (,class ,value)
+                               (progn ,@body)
+                             (if (eq ,class :next-token)
+                                 (go ,next-token)
+                               (return (when ,class
+                                         (make-instance 'token
+                                                        :class ,class
+                                                        :value ,value
+                                                        :line ,line
+                                                        :source ,source
+                                                        :lexeme ,lexeme))))))))))
           (unless (>= ,pos (length ,string))
             (error (make-instance 'lex-error
                                   :reason "Lexing error"
@@ -575,7 +576,12 @@
 (defun maybe (p)
   "Optionally match a parse combinator."
   #'(lambda (st)
-      (or (funcall p st) t)))
+      (with-slots (stream)
+          st
+        (let ((pos (file-position stream)))
+          (if (funcall p st)
+              t
+            (file-position stream  pos))))))
 
 (defun many (p)
   "Match a parse combinator zero or more times."
