@@ -201,7 +201,7 @@
                (prog1 nil (setf ,v ,no-match))
              (cons (match-string ,v) (match-captures ,v)))
          (declare (ignorable ,$$ ,$1 ,$2 ,$3 ,$4 ,$5 ,$6 ,$7 ,$8 ,$9 ,$_))
-         (values (progn ,@body) t)))))
+         (progn ,@body)))))
 
 (defmacro deflexer (lexer (&rest re-options) &body patterns)
   "Create a tokenizing function."
@@ -425,7 +425,8 @@
 (defun match-re (re s &key (start 0) (end (length s)) exact)
   "Check to see if a regexp pattern matches a string."
   (flet ((capture (caps place)
-           (cons (when (cdr place) (subseq s (car place) (cdr place))) caps)))
+           (cons (when (cdr place)
+                   (subseq s (car place) (cdr place))) caps)))
     (with-input-from-string (stream s :start start :end end)
       (let ((st (make-instance 'lex-state 
                                :stream stream
@@ -515,7 +516,7 @@
   #'(lambda (st)
       (with-slots (stream captures)
           st
-        (let ((capture (cons (file-position stream) nil)))
+        (let ((capture (list (file-position stream))))
           (push capture captures)
           (when (funcall p st)
             (rplacd capture (file-position stream)))))))
@@ -576,12 +577,17 @@
 (defun maybe (p)
   "Optionally match a parse combinator."
   #'(lambda (st)
-      (with-slots (stream)
+      (with-slots (stream captures)
           st
-        (let ((pos (file-position stream)))
+        (let ((cap-pos (first captures))
+              (pos (file-position stream)))
           (if (funcall p st)
               t
-            (file-position stream  pos))))))
+            (prog1
+                (file-position stream pos)
+              (loop :for cap :in captures
+                    :until (eq cap cap-pos)
+                    :do (rplacd cap nil))))))))
 
 (defun many (p)
   "Match a parse combinator zero or more times."
