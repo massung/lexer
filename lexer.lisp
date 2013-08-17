@@ -424,7 +424,7 @@
 (defun match-re (re s &key (start 0) (end (length s)) exact)
   "Check to see if a regexp pattern matches a string."
   (flet ((capture (caps place)
-           (cons (subseq s (car place) (cdr place)) caps)))
+           (cons (when (cdr place) (subseq s (car place) (cdr place))) caps)))
     (with-input-from-string (stream s :start start :end end)
       (let ((st (make-instance 'lex-state 
                                :stream stream
