@@ -291,12 +291,14 @@
                        (token-value token)))))
       (handler-case
           (funcall parser #'next-token)
-        (error (c)
-          (error (make-instance 'lex-error
-                                :reason c
-                                :line (token-line token)
-                                :source (token-source token)
-                                :lexeme (token-lexeme token))))))))
+        (condition (c)
+          (if (null token)
+              (error c)
+            (error (make-instance 'lex-error
+                                  :reason c
+                                  :line (token-line token)
+                                  :source (token-source token)
+                                  :lexeme (token-lexeme token)))))))))
 
 (defparser re-parser
   ((start compound) $1)
