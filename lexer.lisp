@@ -159,10 +159,10 @@
 (defconstant +digit+ "0123456789")
 (defconstant +hex-digit+ "0123456789abcdefABCDEF")
 (defconstant +punctuation+ "`~!@#$%^&*()-+=[]{}\|;:',./<>?\"")
-(defconstant +letter+ #.(concatenate 'string +lowercase-letter+ +uppercase-letter+))
-(defconstant +alpha-numeric+ #.(concatenate 'string +letter+ +digit+))
-(defconstant +spaces+ #.(format nil "~c~c" #\space #\tab))
-(defconstant +newlines+ #.(format nil "~c~c~c" #\newline #\return #\linefeed))
+(defconstant +letter+ (concatenate 'string +lowercase-letter+ +uppercase-letter+))
+(defconstant +alpha-numeric+ (concatenate 'string +letter+ +digit+))
+(defconstant +spaces+ (format nil "~c~c" #\space #\tab))
+(defconstant +newlines+ (format nil "~c~c~c" #\newline #\return #\linefeed))
 
 (defun range-chars (from to)
   "Return an inclusive list of characters in ascii order."
@@ -479,7 +479,7 @@
   (let ((matches (find-re re s :start start :end end :all all)))
     (unless all
       (setf matches (when matches (list matches))))
-    (with-output-to-string (rep)
+    (with-output-to-string (rep nil :element-type 'character)
       (let ((pos 0))
         (loop :for match :in matches
               :do (progn
