@@ -182,7 +182,7 @@
              (compile-re re))))
     (set-dispatch-macro-character #\# #\/ #'dispatch-re)))
 
-(defmacro with-re-match ((v match &optional no-match) &body body)
+(defmacro with-re-match ((v match) &body body)
   "Intern match symbols to execute a body."
   (let (($$ (intern "$$" *package*))
         ($1 (intern "$1" *package*))
@@ -197,8 +197,7 @@
         ($_ (intern "$_" *package*)))
     `(let ((,v ,match))
        (destructuring-bind (&optional ,$$ ,$1 ,$2 ,$3 ,$4 ,$5 ,$6 ,$7 ,$8 ,$9 &rest ,$_)
-           (if (null ,v)
-               (prog1 nil (setf ,v ,no-match))
+           (when ,v
              (cons (match-string ,v) (match-captures ,v)))
          (declare (ignorable ,$$ ,$1 ,$2 ,$3 ,$4 ,$5 ,$6 ,$7 ,$8 ,$9 ,$_))
          (progn ,@body)))))
@@ -302,27 +301,32 @@
                                   :lexeme (token-lexeme token)))))))))
 
 (defparser re-parser
-  ((start compound) $1)
-
-  ;; either expression a or b (a|b)
-  ((compound compound :or exprs) (either $1 $3))
-  ((compound exprs) $1)
+  ((start compound)
+   $1)
 
   ;; multiple expressions bound together
-  ((exprs simple exprs) (bind $1 $2))
-  ((exprs simple) $1)
-  ((exprs :error) (error 're-pattern-error))
+  ((compound capture compound)
+   (bind $1 $2))
+  ((compound capture)
+   $1)
 
-  ;; simple, optional, and repition (?, *, +, -)
-  ((simple expr :maybe) (maybe $1))
-  ((simple expr :many) (many $1))
-  ((simple expr :many1) (many1 $1))
-  ((simple expr :to) (many $1))
-  ((simple expr) $1)
+  ;; captured expression
+  ((capture :capture compound :end-capture)
+   (capture $2))
+  ((capture simple)
+   $1)
 
-  ;; capture expression (x)
-  ((expr :capture :maybe compound :end-capture) $3)
-  ((expr :capture compound :end-capture) (capture $2))
+  ;; optional, repeating expressions
+  ((simple expr :maybe)
+   (maybe $1))
+  ((simple expr :many)
+   (many $1))
+  ((simple expr :many1)
+   (many1 $1))
+  ((simple expr :to)
+   (many $1))
+  ((simple expr)
+   $1)
 
   ;; bounded expression
   ((expr :between) 
@@ -330,39 +334,60 @@
             (ch (cdr $1) :case-fold *case-fold*)))
 
   ;; single character
-  ((expr :char) (ch $1 :case-fold *case-fold*))
+  ((expr :char)
+   (ch $1 :case-fold *case-fold*))
 
   ;; any character and end of line/input
-  ((expr :any) (any-char :match-newline-p (not *multi-line*)))
-  ((expr :eol) (eol :match-newline-p *multi-line*))
-  ((expr :none) (newline :match-newline-p *multi-line*))
+  ((expr :any)
+   (any-char :match-newline-p (not *multi-line*)))
+  ((expr :eol)
+   (eol :match-newline-p *multi-line*))
+  ((expr :none)
+   (newline :match-newline-p *multi-line*))
 
-  ;; sets of characters (named, [..], [^..])
-  ((expr :one-of) (one-of $1))
-  ((expr :none-of) (none-of $1))
-  ((expr :set set) $2)
+  ;; sets of characters
+  ((expr :one-of)
+   (one-of $1))
+  ((expr :none-of)
+   (none-of $1))
+  ((expr :set set)
+   $2)
 
-  ((expr :error) (error 're-pattern-error))
+  ;; unknown pattern
+  ((expr :error)
+   (error 're-pattern-error))
 
   ;; inclusive and exclusive sets
-  ((set :none chars) (none-of $2 :case-fold *case-fold*))
-  ((set chars) (one-of $1 :case-fold *case-fold*))
+  ((set :none chars)
+   (none-of $2 :case-fold *case-fold*))
+  ((set chars)
+   (one-of $1 :case-fold *case-fold*))
 
   ;; character set (just a list of characters)
-  ((chars :one-of chars) (append (coerce $1 'list) $2))
-  ((chars :char :to :char chars) (append (range-chars $1 $3) $4))
-  ((chars :eol chars) (cons #\$ $2))
-  ((chars :any chars) (cons #\. $2))
-  ((chars :capture chars) (cons #\( $2))
-  ((chars :end-capture chars) (cons #\) $2))
-  ((chars :maybe chars) (cons #\? $2))
-  ((chars :many chars) (cons #\* $2))
-  ((chars :many1 chars) (cons #\+ $2))
-  ((chars :or chars) (cons #\| $2))
-  ((chars :char chars) (cons $1 $2))
-  ((chars :to :end-set) (list #\-))
-  ((chars :end-set) nil)
-  ((chars :error) (error 're-pattern-error)))
+  ((chars :one-of chars)
+   (append (coerce $1 'list) $2))
+  ((chars :char :to :char chars)
+   (append (range-chars $1 $3) $4))
+  ((chars :eol chars)
+   (cons #\$ $2))
+  ((chars :any chars)
+   (cons #\. $2))
+  ((chars :capture chars)
+   (cons #\( $2))
+  ((chars :end-capture chars)
+   (cons #\) $2))
+  ((chars :maybe chars)
+   (cons #\? $2))
+  ((chars :many chars)
+   (cons #\* $2))
+  ((chars :many1 chars)
+   (cons #\+ $2))
+  ((chars :char chars)
+   (cons $1 $2))
+  ((chars :to :end-set)
+   (list #\-))
+  ((chars :end-set)
+   nil))
 
 (defun compile-re (pattern &key case-fold multi-line)
   "Create a regular expression pattern match."
@@ -411,7 +436,6 @@
                      (#\* :many)
                      (#\+ :many1)
                      (#\- :to)
-                     (#\| :or)
                      (otherwise
                       (values :char c)))))))
         (let ((expr (re-parser #'next-token)))
@@ -422,27 +446,35 @@
                            :multi-line multi-line
                            :expression expr)))))))
 
+(defun reduce-captures (s captures)
+  "Reverse capture order and fetch their match."
+  (flet ((capture (all capture)
+           (if capture
+               (with-slots (start-pos end-pos captures)
+                   capture
+                 (nconc (cons (subseq s start-pos end-pos) (reduce-captures s captures)) all))
+             (push nil all))))
+    (reduce #'capture captures :initial-value nil)))
+
 (defun match-re (re s &key (start 0) (end (length s)) exact)
   "Check to see if a regexp pattern matches a string."
-  (flet ((capture (caps place)
-           (cons (when (cdr place)
-                   (subseq s (car place) (cdr place))) caps)))
-    (with-input-from-string (stream s :start start :end end)
-      (let ((st (make-instance 'lex-state 
-                               :stream stream
-                               :start start
-                               :captures nil
-                               :newline (or (zerop start)
-                                            (char= (char s (1- start)) #\newline)))))
-        (when (funcall (re-expression re) st)
-          (let ((caps (reduce #'capture (lex-captures st) :initial-value nil))
-                (end-pos (file-position stream)))
-            (when (or (not exact) (= end-pos end))
-              (make-instance 're-match
-                             :match (subseq s start end-pos)
-                             :captures caps
-                             :start-pos start
-                             :end-pos end-pos))))))))
+  (with-input-from-string (stream s :start start :end end)
+    (let ((st (make-instance 'lex-state 
+                             :stream stream
+                             :start start
+                             :captures nil
+                             :newline (or (zerop start)
+                                          (char= (char s (1- start)) #\newline)))))
+      (when (funcall (re-expression re) st)
+        (let ((end-pos (file-position stream)))
+          (when (and (> end-pos start)
+                     (or (= end-pos end)
+                         (not exact)))
+            (make-instance 're-match
+                           :start-pos start
+                           :end-pos end-pos
+                           :captures (reduce-captures s (lex-captures st))
+                           :match (subseq s start end-pos))))))))
 
 (defun find-re (re s &key (start 0) (end (length s)) all)
   "Find a regexp pattern match somewhere in a string."
@@ -504,107 +536,115 @@
       (when c
         (unread-char c (lex-stream st))))))
 
+(defmacro def-lex-state ((st &rest slots) &body body)
+  "Generate a parse combinator function."
+  `#'(lambda (,st)
+       (when ,st
+         (with-slots ,slots
+             ,st
+           (progn ,@body)))))
+
 (defun bind (&rest ps)
   "Bind parse combinators together to compose a new combinator."
-  #'(lambda (st)
-      (dolist (p ps t)
-        (unless (funcall p st)
-          (return nil)))))
+  (def-lex-state (st)
+    (dolist (p ps st)
+      (unless (funcall p st)
+        (return)))))
 
 (defun capture (p)
   "Push a capture of a combinator onto the lex state."
-  #'(lambda (st)
-      (with-slots (stream captures)
-          st
-        (let ((capture (list (file-position stream))))
-          (push capture captures)
-          (when (funcall p st)
-            (rplacd capture (file-position stream)))))))
+  (def-lex-state (st stream captures)
+    (let ((old-captures captures) (start-pos (file-position stream)))
+      (setf captures nil)
+        
+      ;; run the sub-expression with a new capture array
+      (let ((match (when (funcall p st)
+                     (make-instance 're-match
+                                    :captures captures
+                                    :start-pos start-pos
+                                    :end-pos (file-position stream)))))
+        (prog1
+            match
+          (push match old-captures)
+          
+          ;; restore the old capture array, but with the new match added
+          (setf captures old-captures))))))
 
 (defun either (p1 p2)
   "Try one parse combinator, if it fails, try another."
-  #'(lambda (st)
-      (with-slots (stream captures)
-          st
-        (let ((pos (file-position stream))
-              (caps captures))
-          (or (funcall p1 st)
-              (progn
-                (setf captures caps)
-                (file-position stream pos)
-                (funcall p2 st)))))))
+  (def-lex-state (st stream captures)
+    (let ((pos (file-position stream))
+          (caps captures))
+      (or (funcall p1 st)
+          (progn
+            (setf captures caps)
+            (file-position stream pos)
+            (funcall p2 st))))))
 
 (defun any-char (&key match-newline-p)
   "Expect a non-eoi character."
-  #'(lambda (st)
-      (next st #'(lambda (x)
-                   (and x (if match-newline-p 
-                              t 
-                            (null (member x '(#\return #\linefeed)))))))))
+  (def-lex-state (st)
+    (next st #'(lambda (x)
+                 (and x (if match-newline-p 
+                            t 
+                          (null (member x '(#\return #\linefeed)))))))))
 
 (defun eol (&key (match-newline-p t))
   "End of file or line."
-  #'(lambda (st)
-      (let ((x (next st #'identity)))
-        (or (null x) (and match-newline-p (char= x #\newline))))))
+  (def-lex-state (st)
+    (let ((x (next st #'identity)))
+      (or (null x) (and match-newline-p (char= x #\newline))))))
 
 (defun newline (&key (match-newline-p t))
   "Start of file or line."
-  #'(lambda (st)
-      (or (zerop (lex-start st)) (and match-newline-p (lex-newline st)))))
+  (def-lex-state (st)
+    (or (zerop (lex-start st)) (and match-newline-p (lex-newline st)))))
 
 (defun ch (c &key case-fold)
   "Match an exact character."
   (let ((test (if case-fold #'unicode-char-equal #'char=)))
-    #'(lambda (st)
-        (next st #'(lambda (x)
-                     (and x (funcall test x c)))))))
+    (def-lex-state (st)
+      (next st #'(lambda (x)
+                   (and x (funcall test x c)))))))
 
 (defun one-of (cs &key case-fold)
   "Match any character from a set."
   (let ((test (if case-fold #'unicode-char-equal #'char=)))
-    #'(lambda (st)
-        (next st #'(lambda (x)
-                     (and x (find x cs :test test)))))))
+    (def-lex-state (st)
+      (next st #'(lambda (x)
+                   (and x (find x cs :test test)))))))
 
 (defun none-of (cs &key case-fold)
   "Match any character not in a set."
   (let ((test (if case-fold #'unicode-char-equal #'char=)))
-    #'(lambda (st)
-        (next st #'(lambda (x)
-                     (and x (not (find x cs :test test))))))))
+    (def-lex-state (st)
+      (next st #'(lambda (x)
+                   (and x (not (find x cs :test test))))))))
 
 (defun maybe (p)
   "Optionally match a parse combinator."
-  #'(lambda (st)
-      (with-slots (stream captures)
-          st
-        (let ((cap-pos (first captures))
-              (pos (file-position stream)))
-          (if (funcall p st)
-              t
-            (prog1
-                (file-position stream pos)
-              (loop :for cap :in captures
-                    :until (eq cap cap-pos)
-                    :do (rplacd cap nil))))))))
+  (def-lex-state (st stream)
+    (let ((pos (file-position stream)))
+      (if (funcall p st)
+          t
+        (file-position stream pos)))))
 
 (defun many (p)
   "Match a parse combinator zero or more times."
-  #'(lambda (st)
-      (do () ((null (funcall p st)) st))))
+  (def-lex-state (st)
+    (do () ((null (funcall p st)) st))))
+
+(defun many-til (p term)
+  "Match a parse combinator many times until a terminal."
+  (def-lex-state (st)
+    (do ()
+        ((funcall term st) t)
+      (unless (funcall p st)
+        (return nil)))))
 
 (defun many1 (p)
   "Match a parse combinator one or more times."
   (bind p (many p)))
-
-(defun many-til (p term)
-  "Match a parse combinator many times until a terminal."
-  #'(lambda (st)
-      (do ()
-          ((funcall term st) t)
-        (unless (funcall p st)
-          (return nil)))))
 
 (defun between (b1 b2 &key match-newline-p)
   "Match everything between two characters."

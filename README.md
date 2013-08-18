@@ -1,8 +1,12 @@
 # The LEXER Package
 
-The `LEXER` package is a very simple and small regular expression library for [LispWorks](http://www.lispworks.com). It follows the pattern matching syntax used by [Lua](http://www.lua.org) for simple regular expression functionality: matching, searching, splitting, and replacing. You can see the syntax for these patterns [here](http://www.lua.org/pil/20.2.html). It also has a lexer macro that tokenizes strings and is designed to be used in conjuction with the [`PARSERGEN`](http://www.lispworks.com/documentation/lw50/LWRM/html/lwref-433.htm) package built into [LispWorks](http://www.lispworks.com).
+The `LEXER` package is a very simple and small regular expression library for [LispWorks](http://www.lispworks.com). There is also has a lexer macro that tokenizes strings and is designed to be used in conjuction with the [`PARSERGEN`](http://www.lispworks.com/documentation/lw50/LWRM/html/lwref-433.htm) package built into [LispWorks](http://www.lispworks.com).
 
 # Lua-style Regular Expressions
+
+The pattern syntax closely follows the pattern matching format used by [Lua](http://www.lua.org) for simple regular expression functionality: matching, searching, splitting, and replacing. You can see the syntax for these patterns [here](http://www.lua.org/pil/20.2.html). You should be very aware of what it's limitations are.
+
+# Exposed Classes
 
 The two exposed classes are `re` and `re-match`. The `re` class doesn't expose any functionality, but the `re-match` class exposes the following reader functions:
 
@@ -10,6 +14,8 @@ The two exposed classes are `re` and `re-match`. The `re` class doesn't expose a
 	#'match-captures
 	#'match-pos-start
 	#'match-pos-end
+	
+*Additional classes are exposed for lexing and are discussed later.*
 
 # Creating a Regular Expression
 
@@ -124,19 +130,17 @@ Once you have a `re-match` object, while you can get at the captures and matched
 
 	(with-re-match ((var match-expr) &body body)
 
-The `var` is the symbol that will be lexically bound to the results of `match-expr`. Once inside `body`, however, There will be 10 additional symbols: `$$`, `$1`, `$2`, `$3`, ... `$9`. These are bound to the `match-string` and the `match-capture` strings.
+The `var` is the symbol that will be lexically bound to the results of `match-expr`. Once inside `body`, however, There will be 10 additional symbols: `$$`, `$1`, `$2`, `$3`, ... `$9`, `$_`. These are bound to the `match-string` and the `match-capture` strings. `$_` is bound to a list of all superfluous captures after `$9`.
 
-	CL-USER > (with-re-match (m (find-re #/{([^}]+)}/ "this {is a} test"))
+	CL-USER > (with-re-match (m (find-re #/(foo)(bar)/ "this is foobar!"))
 	            (print $$)
-	            (print $1))
-	"{is a}"
-	"is a"
-	"is a"
-	T
+	            (print $1)
+	            (print $2))
+	"foobar"
+	"foo"
+	"bar"
 
-The first two results are the `print` outputs. `$$` was bound to the `match-string` of the match and `$1` was bound to the first captured submatch.
-
-The last two results are the multiple return values of `body` and `T` indicates that the match was non-nil. Had `find-re` returned `nil`, then `body` would not have executed and `nil` would have been returned. This distinguishes itself from when `body` returns `nil`, but the match was found.
+*NOTE: Be sure and check the value of your match variable! If the match fails it will be `nil` (as will all the bound capture variables).*
 
 	CL-USER > (flet ((initial (m)
 	                   (with-re-match (v m)
