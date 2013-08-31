@@ -178,10 +178,10 @@
                                   :source (token-source token)
                                   :lexeme (token-lexeme token)))))))))
 
-(defun slurp (pathname)
+(defun slurp (pathname &key (element-type 'base-char))
   "Read a file into a string sequence."
   (with-open-file (stream pathname)
-    (let ((seq (make-array (file-length stream) :element-type 'character :fill-pointer t)))
+    (let ((seq (make-array (file-length stream) :element-type element-type :fill-pointer t)))
       (prog1
           seq
         (setf (fill-pointer seq) (read-sequence seq stream))))))
