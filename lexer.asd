@@ -1,10 +1,9 @@
-(defpackage :lexer-asd
+(defpackage :mass-lexer-asd
   (:use :cl :asdf))
 
-(in-package :lexer-asd)
+(in-package :mass-lexer-asd)
 
-(defsystem :lexer
-  :name "lexer"
+(defsystem :mass-lexer
   :version "1.0"
   :author "Jeffrey Massung"
   :license "Apache 2.0"
