@@ -150,6 +150,7 @@ Perfect! Now let's write the grammar...
 
 	            ;; a list of values
 	            ((values value :comma values) `(,$1 ,@$3))
+	            ((values :comma values) `(nil ,@$2))
 	            ((values value) `(,$1))
 
 	            ;; a single value
@@ -163,8 +164,8 @@ Perfect! Now let's write the grammar...
 
 And let's give it a spin:
 
-	CL-USER > (parse #'csv-parser (tokenize #'csv-lexer "1,\"hi\",2"))
-	(1 "hi" 2)
+	CL-USER > (parse #'csv-parser (tokenize #'csv-lexer "1,\"hello, world!\",,,2"))
+	(1 "hello, world!" NIL NIL 2)
 	NIL
 	
 That's it!
