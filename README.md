@@ -102,7 +102,7 @@ Let's give this a spin by creating a simple CSV parser. It should be able to par
 First, let's define the CSV lexer:
 
 	CL-USER > (deflexer csv-lexer
-	            ("%s+")
+	            ("%s+"      (values :next-token))
 
 	            ;; tokens
 	            (","        (values :comma))
