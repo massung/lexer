@@ -38,7 +38,7 @@
    #:lex-pos
    #:lex-line
    #:lex-source
-   #:lex-buf
+   #:lex-string
 
    ;; token readers
    #:token-line
@@ -51,18 +51,18 @@
 
 (defclass lexbuf ()
   ((string :initarg :string :reader lex-string)
-   (source :initarg :source :reader lex-source)
-   (pos    :initarg :pos    :reader lex-pos    :initform 0)
-   (line   :initarg :line   :reader lex-line   :initform 1)
-   (lexeme :initarg :lexeme :reader lex-lexeme :initform nil))
+   (source :initarg :source :reader lex-source   :initform nil)
+   (pos    :initarg :pos    :reader lex-pos      :initform 0)
+   (line   :initarg :line   :reader lex-line     :initform 1)
+   (lexeme :initarg :lexeme :reader lex-lexeme   :initform nil))
   (:documentation "The input source for a DEFLEXER."))
 
 (defclass token ()
-  ((line   :initarg :line   :reader token-line)
-   (source :initarg :source :reader token-source)
-   (class  :initarg :class  :reader token-class)
-   (value  :initarg :value  :reader token-value)
-   (lexeme :initarg :lexeme :reader token-lexeme))
+  ((line   :initarg :line   :reader token-line   :initform 0)
+   (source :initarg :source :reader token-source :initform nil)
+   (class  :initarg :class  :reader token-class  :initform nil)
+   (value  :initarg :value  :reader token-value  :initform nil)
+   (lexeme :initarg :lexeme :reader token-lexeme :initform ""))
   (:documentation "A parsed token from a lexbuf."))
 
 (define-condition lex-error (error)
@@ -149,13 +149,20 @@
 
 (defun tokenize (lexer string &optional source)
   "Create a function that can be used in a parsergen."
-  (let ((*lexbuf* (make-instance 'lexbuf :string string :source source)))
-    (loop :with *lexer* := (list lexer)
-          :while *lexer*
-          :nconc (loop :for token := (funcall (first *lexer*))
-                       :while token
-                       :collect token)
-          :do (pop *lexer*))))
+  (loop :with *lexbuf* := (make-instance 'lexbuf :string string :source source)
+        :with *lexer* := (list lexer)
+        :with *last-token* := nil
+        
+        ;; while there is still an active lexer
+        :while *lexer*
+
+        ;; collect all the tokens for that lexer
+        :nconc (loop :for token := (funcall (first *lexer*))
+                     :while token
+                     :collect token)
+
+        ;; then pop it and continue tokenizing
+        :do (pop *lexer*)))
 
 (defun parse (parser tokens)
   "Set the lexer and parse the source with it."
