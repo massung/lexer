@@ -151,7 +151,6 @@
   "Create a function that can be used in a parsergen."
   (loop :with *lexbuf* := (make-instance 'lexbuf :string string :source source)
         :with *lexer* := (list lexer)
-        :with *last-token* := nil
         
         ;; while there is still an active lexer
         :while *lexer*
