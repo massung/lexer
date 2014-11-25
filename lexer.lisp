@@ -103,7 +103,7 @@
          (prog
              ()
           ,next-token
-          ,@(loop :for pattern :in patterns :collect
+          ,@(loop for pattern in patterns collect
                   (destructuring-bind (p &body body)
                       pattern
                     (with-re (re p)
@@ -149,19 +149,19 @@
 
 (defun tokenize (lexer string &optional source)
   "Create a function that can be used in a parsergen."
-  (loop :with *lexbuf* := (make-instance 'lexbuf :string string :source source)
-        :with *lexer* := (list lexer)
+  (loop with *lexbuf* = (make-instance 'lexbuf :string string :source source)
+        with *lexer* = (list lexer)
         
         ;; while there is still an active lexer
-        :while *lexer*
+        while *lexer*
 
         ;; collect all the tokens for that lexer
-        :nconc (loop :for token := (funcall (first *lexer*))
-                     :while token
-                     :collect token)
+        append (loop for token = (funcall (first *lexer*))
+                     while token
+                     collect token)
 
         ;; then pop it and continue tokenizing
-        :do (pop *lexer*)))
+        do (pop *lexer*)))
 
 (defun parse (parser tokens)
   "Set the lexer and parse the source with it."
