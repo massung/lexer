@@ -30,6 +30,7 @@
 
    ;; functions
    #:tokenize
+   #:include
    #:parse
    #:slurp
 
@@ -98,10 +99,12 @@
         (class (gensym "class"))
         (value (gensym "value")))
     `(defun ,lexer ()
-       (with-slots ((,string string) (,source source) (,pos pos) (,line line) (,lexeme lexeme))
-           *lexbuf*
-         (prog
-             ()
+       (symbol-macrolet ((,string (slot-value (first *lexbuf*) 'string))
+                         (,source (slot-value (first *lexbuf*) 'source))
+                         (,pos    (slot-value (first *lexbuf*) 'pos))
+                         (,line   (slot-value (first *lexbuf*) 'line))
+                         (,lexeme (slot-value (first *lexbuf*) 'lexeme)))
+         (tagbody
           ,next-token
           ,@(loop for pattern in patterns collect
                   (destructuring-bind (p &body body)
@@ -115,19 +118,27 @@
                              (progn ,@body)
                            (if (eq ,class :next-token)
                                (go ,next-token)
-                             (return (when ,class
-                                       (make-instance 'token
-                                                      :class ,class
-                                                      :value ,value
-                                                      :line ,line
-                                                      :source ,source
-                                                      :lexeme ,lexeme)))))))))
-          (unless (>= ,pos (length ,string))
-            (error (make-instance 'lex-error
-                                  :reason "Lexing error"
-                                  :line ,line
-                                  :source ,source
-                                  :lexeme (string (char ,string ,pos))))))))))
+                             (return-from ,lexer (when ,class
+                                                   (make-instance 'token
+                                                                  :class ,class
+                                                                  :value ,value
+                                                                  :line ,line
+                                                                  :source ,source
+                                                                  :lexeme ,lexeme)))))))))
+
+          ;; no pattern matched - error if not at the end of the buffer
+          (if (< ,pos (length ,string))
+              (error (make-instance 'lex-error
+                                    :reason "Lexing error"
+                                    :line ,line
+                                    :source ,source
+                                    :lexeme (string (char ,string ,pos))))
+            (progn
+              (pop *lexbuf*)
+
+              ;; if there are still buffers being parsed, continue
+              (when *lexbuf*
+                (go ,next-token)))))))))
 
 (defun push-lexer (lexer class &optional value)
   "Push a new lexer and return a token."
@@ -148,8 +159,8 @@
     (rplaca *lexer* lexer)))
 
 (defun tokenize (lexer string &optional source)
-  "Create a function that can be used in a parsergen."
-  (loop with *lexbuf* = (make-instance 'lexbuf :string string :source source)
+  "Create a lexbuf and parse until there are not more tokens or lexer."
+  (loop with *lexbuf* = (list (make-instance 'lexbuf :string string :source source))
         with *lexer* = (list lexer)
         
         ;; while there is still an active lexer
@@ -162,6 +173,11 @@
 
         ;; then pop it and continue tokenizing
         do (pop *lexer*)))
+
+(defun include (source &optional string)
+  "Push a new buffer to be tokenized using the current lexer."
+  (prog1 :next-token
+    (push (make-instance 'lexbuf :string string :source source) *lexbuf*)))
 
 (defun parse (parser tokens)
   "Set the lexer and parse the source with it."
