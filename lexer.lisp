@@ -174,9 +174,10 @@
         ;; then pop it and continue tokenizing
         do (pop *lexer*)))
 
-(defun include (source &optional string)
+(defun include (string &optional source)
   "Push a new buffer to be tokenized using the current lexer."
-  (prog1 :next-token
+  (prog1
+      :next-token
     (push (make-instance 'lexbuf :string string :source source) *lexbuf*)))
 
 (defun parse (parser tokens)
