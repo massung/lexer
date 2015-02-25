@@ -110,7 +110,7 @@
                   (destructuring-bind (p &body body)
                       pattern
                     (with-re (re p)
-                      `(with-re-match (,match (match-re ,re ,string :start ,pos))
+                      `(with-re-match (,match (match-re ,re ,string :offset ,pos))
                          (incf ,line (count #\newline (match-string ,match)))
                          (setf ,pos (match-pos-end ,match))
                          (setf ,lexeme (subseq ,string (match-pos-start ,match) ,pos))
@@ -167,12 +167,11 @@
         while *lexer*
 
         ;; collect all the tokens for that lexer
-        append (loop for token = (funcall (first *lexer*))
+        append (loop while *lexer*
+                     for token = (funcall (first *lexer*))
                      while token
-                     collect token)
-
-        ;; then pop it and continue tokenizing
-        do (pop *lexer*)))
+                     collect token
+                     finally (pop *lexer*))))
 
 (defun include (string &optional source)
   "Push a new buffer to be tokenized using the current lexer."
