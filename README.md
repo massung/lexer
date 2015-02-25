@@ -170,6 +170,50 @@ And let's give it a spin:
 	
 That's it!
 
+## Multiple Buffers
+
+Sometimes you'll want to directly include text from another location and inject it based on tokens being parsed right now. Examples of this would be a an `#include` in C or a parameter entity reference (PERef) in the DTD of an XML file.
+
+You don't want to change the current lexing rules, just temporarily switch to another buffer and come back when done. To do this, from within your rule, call the `include` function.
+
+	(include string &optional source)
+
+This will create a temporary lexbuf with *string* from *source* that will continue to be tokenized. When done, your rules will continue to analyze where it left off (note: it's possible that the rules have changed due to whatever was parsed in the included buffer).
+
+	;; --- ~/numbers.txt ---
+	1 2 3
+	
+	;; --- ~/numbers2.txt ---
+	4 5 6
+	
+	CL-USER > (deflexer numbers
+	            ("[%s%n]+"         (values :next-token))
+	            ("%d+"             (values :int (parse-integer $$)))
+	            ("import%s+'(.-)'" (include (slurp $1) $1)))
+	NUMBERS
+	
+	CL-USER > (tokenize 'numbers "import '~/numbers.txt' import '~/numbers2.txt'")
+	(#<LEXER::TOKEN INT 1>
+	 #<LEXER::TOKEN INT 2>
+	 #<LEXER::TOKEN INT 3>
+	 #<LEXER::TOKEN INT 4>
+	 #<LEXER::TOKEN INT 5>
+	 #<LEXER::TOKEN INT 6>)
+
+As you can see, we began parsing, hit an include, farmed out to another source file, parsed that, came back, then included another source file, parsed it, came back, and finished.
+
+*Note: if a lexing error occurs within one of the other files, it will properly note the lexeme, line, and source that it was in!*
+
+	;; --- ~/numbers.txt ---
+	1 2 3
+	3 2 1
+	a b c
+	
+	CL-USER > (tokenize 'numbers "import '~/numbers.txt')
+	Error: Lexing error on line 3 of "~/numbers.txt" near "a"
+	  1 (abort) Return to level 0.
+	  2 Return to top loop level 0.
+
 # More (Usable) Examples
 
 Here are some lexers used to parse various file formats. As with this package, they are released under the Apache 2.0 license and are free to use in your own projects.
