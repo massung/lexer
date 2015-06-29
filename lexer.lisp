@@ -29,6 +29,7 @@
    #:swap-lexer
 
    ;; functions
+   #:scan
    #:tokenize
    #:include
    #:parse
@@ -140,6 +141,12 @@
               (when *lexbuf*
                 (go ,next-token)))))))))
 
+(defmacro with-lexer ((lexer string &optional source) &body body)
+  "Create a new lexbuf and loop body until done."
+  `(let ((*lexbuf* (list (make-instance 'lexbuf :string ,string :source ,source)))
+         (*lexer* (list ,lexer)))
+     ,@body))
+
 (defun push-lexer (lexer class &optional value)
   "Push a new lexer and return a token."
   (multiple-value-prog1
@@ -158,26 +165,38 @@
       (values class value)
     (rplaca *lexer* lexer)))
 
-(defun tokenize (lexer string &optional source)
-  "Create a lexbuf and parse until there are not more tokens or lexer."
-  (loop with *lexbuf* = (list (make-instance 'lexbuf :string string :source source))
-        with *lexer* = (list lexer)
-        
-        ;; while there is still an active lexer
-        while *lexer*
-
-        ;; collect all the tokens for that lexer
-        append (loop while *lexer*
-                     for token = (funcall (first *lexer*))
-                     while token
-                     collect token
-                     finally (pop *lexer*))))
-
 (defun include (string &optional source)
   "Push a new buffer to be tokenized using the current lexer."
   (prog1
       :next-token
     (push (make-instance 'lexbuf :string string :source source) *lexbuf*)))
+
+(defun make-parse-error (condition &optional token)
+  "Generate an error with an optional token."
+  (if (null token)
+      (error condition)
+    (error (make-instance 'lex-error
+                          :reason condition
+                          :line (token-line token)
+                          :source (token-source token)
+                          :lexeme (token-lexeme token)))))
+
+(defun read-token ()
+  "Reads the next token in the current lexbuf using the top lexer."
+  (if-let (token (funcall (first *lexer*)))
+      token
+    (prog1 nil
+      (pop *lexer*))))
+
+(defun scan (token-function lexer string &optional source)
+  "Create a lexbuf and parse, but don't collect tokens, instead, call a function with each."
+  (with-lexer (lexer string source)
+    (loop while *lexer* for tok = (read-token) when tok do (funcall token-function tok))))
+
+(defun tokenize (lexer string &optional source)
+  "Create a lexbuf and parse until there are not more tokens or lexer."
+  (with-lexer (lexer string source)
+    (loop while *lexer* for tok = (read-token) when tok collect tok)))
 
 (defun parse (parser tokens)
   "Set the lexer and parse the source with it."
@@ -191,18 +210,12 @@
                    (setf token next-token))))))
       (handler-case
           (funcall parser #'next-token)
-        (condition (c)
-          (if (null token)
-              (error c)
-            (error (make-instance 'lex-error
-                                  :reason c
-                                  :line (token-line token)
-                                  :source (token-source token)
-                                  :lexeme (token-lexeme token)))))))))
+        (error (c)
+          (make-parse-error c token))))))
 
 (defun slurp (pathname &key (element-type 'base-char))
   "Read a file into a string sequence."
-  (with-open-file (stream pathname)
+  (with-open-file (stream pathname :element-type element-type)
     (let ((seq (make-array (file-length stream) :element-type element-type :fill-pointer t)))
       (prog1
           seq
