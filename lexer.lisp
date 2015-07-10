@@ -1,4 +1,4 @@
-;;;; Lexing package for LispWorks
+;;;; Lexing package for Common Lisp
 ;;;;
 ;;;; Copyright (c) 2012 by Jeffrey Massung
 ;;;;
@@ -18,7 +18,7 @@
 ;;;;
 
 (defpackage :lexer
-  (:use :cl :lw :re)
+  (:use :cl :re)
   (:nicknames :lex)
   (:export
    #:deflexer
@@ -33,6 +33,7 @@
    #:tokenize
    #:include
    #:parse
+   #:parse-with-lexer
    #:slurp
 
    ;; lexbuf readers
@@ -51,6 +52,8 @@
 
 (in-package :lexer)
 
+;;; ----------------------------------------------------
+
 (defclass lexbuf ()
   ((string :initarg :string :reader lex-string)
    (source :initarg :source :reader lex-source   :initform nil)
@@ -59,6 +62,8 @@
    (lexeme :initarg :lexeme :reader lex-lexeme   :initform nil))
   (:documentation "The input source for a DEFLEXER."))
 
+;;; ----------------------------------------------------
+
 (defclass token ()
   ((line   :initarg :line   :reader token-line   :initform 0)
    (source :initarg :source :reader token-source :initform nil)
@@ -66,6 +71,8 @@
    (value  :initarg :value  :reader token-value  :initform nil)
    (lexeme :initarg :lexeme :reader token-lexeme :initform ""))
   (:documentation "A parsed token from a lexbuf."))
+
+;;; ----------------------------------------------------
 
 (define-condition lex-error (error)
   ((reason :initarg :reason :reader lex-error-reason)
@@ -78,6 +85,8 @@
                  c
                (format s "~a on line ~a~@[ of ~s~]~@[ near ~s~]" reason line source lexeme)))))
 
+;;; ----------------------------------------------------
+
 (defmethod print-object ((token token) s)
   "Output a token to a stream."
   (print-unreadable-object (token s :type t)
@@ -85,8 +94,12 @@
         token
       (format s "~a~@[ ~s~]" class value))))
 
+;;; ----------------------------------------------------
+
 (defvar *lexbuf*)
 (defvar *lexer*)
+
+;;; ----------------------------------------------------
 
 (defmacro deflexer (lexer &body patterns)
   "Create a tokenizing function."
@@ -141,11 +154,15 @@
               (when *lexbuf*
                 (go ,next-token)))))))))
 
+;;; ----------------------------------------------------
+
 (defmacro with-lexer ((lexer string &optional source) &body body)
   "Create a new lexbuf and loop body until done."
   `(let ((*lexbuf* (list (make-instance 'lexbuf :string ,string :source ,source)))
          (*lexer* (list ,lexer)))
      ,@body))
+
+;;; ----------------------------------------------------
 
 (defun push-lexer (lexer class &optional value)
   "Push a new lexer and return a token."
@@ -153,11 +170,15 @@
       (values class value)
     (push lexer *lexer*)))
 
+;;; ----------------------------------------------------
+
 (defun pop-lexer (class &optional value)
   "Pop the top lexer and return a token."
   (multiple-value-prog1
       (values class value)
     (pop *lexer*)))
+
+;;; ----------------------------------------------------
 
 (defun swap-lexer (lexer class &optional value)
   "Set the current lexer and return a token."
@@ -165,11 +186,15 @@
       (values class value)
     (rplaca *lexer* lexer)))
 
+;;; ----------------------------------------------------
+
 (defun include (string &optional source)
   "Push a new buffer to be tokenized using the current lexer."
   (prog1
       :next-token
     (push (make-instance 'lexbuf :string string :source source) *lexbuf*)))
+
+;;; ----------------------------------------------------
 
 (defun make-parse-error (condition &optional token)
   "Generate an error with an optional token."
@@ -181,22 +206,32 @@
                           :source (token-source token)
                           :lexeme (token-lexeme token)))))
 
+;;; ----------------------------------------------------
+
 (defun read-token ()
   "Reads the next token in the current lexbuf using the top lexer."
-  (if-let (token (funcall (first *lexer*)))
-      token
-    (prog1 nil
-      (pop *lexer*))))
+  (when *lexer*
+    (let ((token (funcall (first *lexer*))))
+      (if token
+          token
+        (prog1 nil
+          (pop *lexer*))))))
+
+;;; ----------------------------------------------------
 
 (defun scan (token-function lexer string &optional source)
   "Create a lexbuf and parse, but don't collect tokens, instead, call a function with each."
   (with-lexer (lexer string source)
     (loop while *lexer* for tok = (read-token) when tok do (funcall token-function tok))))
 
+;;; ----------------------------------------------------
+
 (defun tokenize (lexer string &optional source)
   "Create a lexbuf and parse until there are not more tokens or lexer."
   (with-lexer (lexer string source)
     (loop while *lexer* for tok = (read-token) when tok collect tok)))
+
+;;; ----------------------------------------------------
 
 (defun parse (parser tokens)
   "Set the lexer and parse the source with it."
@@ -212,6 +247,26 @@
           (funcall parser #'next-token)
         (error (c)
           (make-parse-error c token))))))
+
+;;; ----------------------------------------------------
+
+(defun parse-with-lexer (parser lexer string &optional source)
+  "Instead of parsing a list of tokens, tokenize and parse at the same time."
+  (with-lexer (lexer string source)
+    (let (token)
+      (flet ((next-token ()
+               (let ((next-token (read-token)))
+                 (when next-token
+                   (multiple-value-prog1
+                       (values (token-class next-token)
+                               (token-value next-token))
+                     (setf token next-token))))))
+        (handler-case
+            (funcall parser #'next-token)
+          (error (c)
+            (make-parse-error c token)))))))
+
+;;; ----------------------------------------------------
 
 (defun slurp (pathname &key (element-type 'base-char))
   "Read a file into a string sequence."
