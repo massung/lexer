@@ -54,7 +54,6 @@
 (defclass lexstate ()
   ((stack  :initarg :stack  :reader lexstate-stack :initform nil)
    (lexbuf :initarg :lexbuf :reader lexstate-buf   :initform nil))  
-  (:extra-initargs '(:lexer))
   (:documentation "The input parameter for DEFLEXER."))
 
 ;;; ----------------------------------------------------
@@ -88,12 +87,6 @@
    (class  :initarg :class  :reader token-class    :initform nil)
    (value  :initarg :value  :reader token-value    :initform nil))
   (:documentation "A parsed token from a lexbuf."))
-
-;;; ----------------------------------------------------
-
-(defmethod initialize-instance :after ((state lexstate) &key lexer &allow-other-keys)
-  "Push an initial lexer onto the lexical state stack."
-  (push lexer (slot-value state 'stack)))
 
 ;;; ----------------------------------------------------
 
@@ -189,7 +182,7 @@
   (let ((buf (gensym))
         (err (gensym)))
     `(let* ((,buf (make-instance 'lexbuf :string ,string :source ,source :pos ,pos :end ,end))
-            (,var (make-instance 'lexstate :lexer ,lexer :lexbuf ,buf)))
+            (,var (make-instance 'lexstate :stack (list ,lexer) :lexbuf ,buf)))
        (handler-case
            (progn ,@body)
          (condition (,err)
