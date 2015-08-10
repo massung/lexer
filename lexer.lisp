@@ -1,6 +1,6 @@
 ;;;; Lexing package for Common Lisp
 ;;;;
-;;;; Copyright (c) 2012 by Jeffrey Massung
+;;;; Copyright (c) Jeffrey Massung
 ;;;;
 ;;;; This file is provided to you under the Apache License,
 ;;;; Version 2.0 (the "License"); you may not use this file
@@ -22,10 +22,11 @@
   (:nicknames :lex)
   (:export
    #:deflexer
+   #:with-lexer
 
-   ;; token/parse functions
+   ;; token functions
+   #:read-token
    #:tokenize
-   #:parse
    #:slurp
 
    ;; lexing functions
@@ -52,19 +53,29 @@
 ;;; ----------------------------------------------------
 
 (defclass lexstate ()
-  ((stack  :initarg :stack  :reader lexstate-stack :initform nil)
-   (lexbuf :initarg :lexbuf :reader lexstate-buf   :initform nil))  
+  ((stack  :initarg :stack  :reader lexstate-stack)
+   (lexbuf :initarg :lexbuf :reader lexstate-buf))
   (:documentation "The input parameter for DEFLEXER."))
 
 ;;; ----------------------------------------------------
 
 (defclass lexbuf ()
-  ((string :initarg :string :reader lexbuf-string  :initform "")
-   (source :initarg :source :reader lexbuf-source  :initform nil)
-   (pos    :initarg :pos    :reader lexbuf-pos     :initform nil)
-   (end    :initarg :end    :reader lexbuf-end     :initform nil)
-   (line   :initarg :line   :reader lexbuf-line    :initform nil))
+  ((string :initarg :string :reader lexbuf-string)
+   (source :initarg :source :reader lexbuf-source)
+   (pos    :initarg :pos    :reader lexbuf-pos)
+   (end    :initarg :end    :reader lexbuf-end)
+   (line   :initarg :line   :reader lexbuf-line))
   (:documentation "The source string being matched against."))
+
+;;; ----------------------------------------------------
+
+(defclass token ()
+  ((line   :initarg :line   :reader token-line)
+   (lexeme :initarg :lexeme :reader token-lexeme)
+   (source :initarg :source :reader token-source)
+   (class  :initarg :class  :reader token-class)
+   (value  :initarg :value  :reader token-value))
+  (:documentation "A parsed token from a lexbuf."))
 
 ;;; ----------------------------------------------------
 
@@ -72,21 +83,11 @@
   ((reason :initarg :reason :reader lex-error-reason)
    (line   :initarg :line   :reader lex-error-line)
    (source :initarg :source :reader lex-error-source))
-  (:documentation "Signaled when an error occurs during tokenizing or parsing.")
+  (:documentation "Signaled during tokenizing when no matching pattern.")
   (:report (lambda (c s)
              (with-slots (reason line source)
                  c
                (format s "~a on line ~a~@[ of ~s~]" reason line source)))))
-
-;;; ----------------------------------------------------
-
-(defclass token ()
-  ((line   :initarg :line   :reader token-line     :initform 1)
-   (lexeme :initarg :lexeme :reader token-lexeme   :initform "")
-   (source :initarg :source :reader token-source   :initform nil)
-   (class  :initarg :class  :reader token-class    :initform nil)
-   (value  :initarg :value  :reader token-value    :initform nil))
-  (:documentation "A parsed token from a lexbuf."))
 
 ;;; ----------------------------------------------------
 
@@ -99,7 +100,7 @@
       ;; set default values
       (unless pos (setf pos 0))
       (unless end (setf end len))
-      
+
       ;; validate the buffer range for parsing
       (assert (<= 0 pos end len))
 
@@ -108,11 +109,14 @@
 
 ;;; ----------------------------------------------------
 
-(defun make-lex-error (state err)
+(defun make-lex-error (state reason)
   "Generate an error with an optional token."
   (let ((line (lexbuf-line (lexstate-buf state)))
         (source (lexbuf-source (lexstate-buf state))))
-    (error (make-instance 'lex-error :reason err :line line :source source))))
+    (error (make-instance 'lex-error
+                          :reason reason
+                          :line line
+                          :source source))))
 
 ;;; ----------------------------------------------------
 
@@ -125,68 +129,77 @@
 
 ;;; ----------------------------------------------------
 
-(defmethod print-object ((buf lexbuf) s)
-  "Output a lexbuf to a stream."
-  (print-unreadable-object (buf s :type t)
-    (with-slots (string pos end line)
-        buf
-      (let ((eol (or (find #\newline string :start pos :end end) end)))
-        (format s "~d/~d (line ~d)... ~s" pos end line (subseq string pos eol))))))
-
-;;; ----------------------------------------------------
-
-(defmacro deflexer (lexer (state) &body patterns)
-  "Create a tokenizing function."
-  (let ((string (gensym "string"))
-        (source (gensym "source"))
-        (pos (gensym "pos"))
+(defmacro deflexer (lexer (state) &body productions)
+  "Create a tokenize function."
+  (let ((s (gensym "string"))
+        (src (gensym "source"))
+        (i (gensym "offset"))
         (end (gensym "end"))
         (line (gensym "line"))
         (next-token (gensym "next-token"))
-        (match (gensym "match"))
+        (m (gensym "match"))
         (class (gensym "class"))
         (value (gensym "value")))
     `(defun ,lexer (,state)
-       (with-slots ((,string string) (,source source) (,pos pos) (,end end) (,line line))
+       (with-slots ((,s string)
+                    (,src source)
+                    (,i pos)
+                    (,end end)
+                    (,line line))
            (lexstate-buf ,state)
          (tagbody
-          ,next-token
-          ,@(loop for pattern in patterns collect
-                  (destructuring-bind (p &body body)
-                      pattern
-                    (with-re (re p)
-                      `(with-re-match (,match (match-re ,re ,string :offset ,pos :end ,end))
-                         (incf ,line (count #\newline (match-string ,match)))
-                         (setf ,pos (match-pos-end ,match))
-                         (multiple-value-bind (,class ,value)
-                             (progn ,@body)
-                           (if (eq ,class :next-token)
-                               (go ,next-token)
-                             (return-from ,lexer
-                               (when ,class
-                                 (make-instance 'token
-                                                :class ,class
-                                                :value ,value
-                                                :line ,line
-                                                :source ,source
-                                                :lexeme (match-string ,match))))))))))
-          
-          ;; no pattern matched - error if not at the end of the buffer
-          (when (< ,pos ,end)
-            (error "Lexing error")))))))
+            ,next-token
+
+            ;; try each of the patterns in order
+            ,@(loop
+                 for p in productions
+                 collect
+                   (with-re (re (pop p))
+                     `(let ((,m (match-re ,re ,s :offset ,i :end ,end)))
+                        (when ,m
+                          (let ((,s (match-string ,m)))
+
+                            ;; count lines, update the parse offset
+                            (incf ,line (count #\newline ,s))
+                            (setf ,i (match-pos-end ,m))
+
+                            ;; evaluate the production form
+                            (multiple-value-bind (,class ,value)
+                                (with-re-match (,m ,m)
+                                  (progn ,@p))
+                              (if (eq ,class :next-token)
+                                  (go ,next-token)
+                                (return-from ,lexer
+                                  (when ,class
+                                    (make-instance 'token
+                                                   :class ,class
+                                                   :value ,value
+                                                   :line ,line
+                                                   :source ,src
+                                                   :lexeme ,s))))))))))
+
+            ;; no pattern matched; error if not at the end
+            (when (< ,i ,end)
+              (make-lex-error ,state "Lexing error")))))))
 
 ;;; ----------------------------------------------------
 
-(defmacro with-lexer ((var lexer string &key source pos end) &body body)
+(defmacro with-lexer ((var lexer string &key source start end) &body body)
   "Create a new lexbuf and lexer list for tokenizing."
-  (let ((buf (gensym))
-        (err (gensym)))
-    `(let* ((,buf (make-instance 'lexbuf :string ,string :source ,source :pos ,pos :end ,end))
-            (,var (make-instance 'lexstate :stack (list ,lexer) :lexbuf ,buf)))
-       (handler-case
-           (progn ,@body)
-         (condition (,err)
-           (make-lex-error ,var ,err))))))
+  (let ((buf (gensym "buf")))
+    `(let* ((,buf (make-instance 'lexbuf
+                                 :string ,string
+                                 :source ,source
+                                 :pos ,start
+                                 :end ,end))
+
+            ;; create the lexstate object as a stack of lexers
+            (,var (make-instance 'lexstate
+                                 :lexbuf ,buf
+                                 :stack (list ,lexer))))
+
+       ;; execute the body
+       (progn ,@body))))
 
 ;;; ----------------------------------------------------
 
@@ -225,30 +238,17 @@
 (defun tokenize (lexer string &optional source)
   "Create a lexbuf and parse until there are not more tokens or lexer."
   (with-lexer (state lexer string :source source)
-    (loop for tok = (read-token state) while tok collect tok)))
-
-;;; ----------------------------------------------------
-
-(defun parse (parser lexer string &optional source)
-  "Set the lexer and parse the source with it."
-  (with-lexer (state lexer string :source source)
-    (let (token)
-      (flet ((next-token ()
-               (setf token nil)
-               (when (setf token (read-token state))
-                 (values (token-class token)
-                         (token-value token)))))
-        (handler-case
-            (funcall parser #'next-token)
-          (condition (c)
-            (error "~a~@[ near ~s~]" c (and token (token-lexeme token)))))))))
+    (handler-case
+        (loop for tok = (read-token state) while tok collect tok)
+      (condition (err)
+        (make-lex-error state err)))))
 
 ;;; ----------------------------------------------------
 
 (defun slurp (pathname &key (element-type 'character))
   "Read a file into a string sequence."
   (with-open-file (stream pathname :element-type element-type)
-    (let ((seq (make-array (file-length stream) :element-type element-type :fill-pointer t)))
-      (prog1
-          seq
+    (let* ((len (file-length stream))
+           (seq (make-array len :element-type element-type :fill-pointer t)))
+      (prog1 seq
         (setf (fill-pointer seq) (read-sequence seq stream))))))
