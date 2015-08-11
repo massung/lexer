@@ -22,7 +22,10 @@
   (:nicknames :lex)
   (:export
    #:deflexer
+
+   ;; lexer state macros
    #:with-lexer
+   #:with-token-reader
 
    ;; token functions
    #:read-token
@@ -200,6 +203,25 @@
 
        ;; execute the body
        (progn ,@body))))
+
+;;; ----------------------------------------------------
+
+(defmacro with-token-reader ((var lexer) &body body)
+  "Create a lexer state and a function to read tokens, then execute."
+  (let ((token (gensym "token")))
+    `(let (,token)
+       (let ((,var #'(lambda ()
+                       (when (setf ,token (read-token ,lexer))
+                         (values (token-class ,token)
+                                 (token-value ,token))))))
+       (handler-case
+           (progn ,@body)
+         (condition (c)
+           (error "~a on line ~d~@[ of ~s~]~@[ near ~s~]"
+                  c
+                  (token-line ,token)
+                  (token-source ,token)
+                  (token-lexeme ,token))))))))
 
 ;;; ----------------------------------------------------
 

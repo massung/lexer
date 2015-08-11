@@ -21,7 +21,7 @@ Here is a simple example:
 
 *NOTE: If you don't understand the `$$` symbol in the example above, please see [this README](http://github.com/massung/re/README.md).*
 
-Each pattern should either return `nil` - indicating the end of the input buffer has been reached - or (up to) two values: the class of the token and the value of the token. Returning `:next-token` is special, and indicates that this token should just be skipped.
+Each pattern should either return `nil` - indicating the end of the input buffer has been reached - or (up to) two values: the class of the token and the value of the token. Returning `:next-token` for the class is special, and indicates that this token should just be skipped.
 
 ## Tokenizing
 
@@ -146,40 +146,55 @@ Let's try tokenizing to see what we get.
 	 #<LEXER::TOKEN COMMA>
 	 #<LEXER::TOKEN INT 2>)
 
-Perfect! Now let's write the grammar...
+## Creating a Lexer State
 
-	CL-USER > (defparser csv-parser
-	            ((start values) $1)
+Until now, we've been using the `tokenize` function to implicitly create a lexer state, which is used by our `deflexer` functions to generate tokens. However, we can do this ourselves and read tokens on-demand as well.
 
-	            ;; a list of values
-	            ((values value :comma values) `(,$1 ,@$3))
-	            ((values :comma values) `(nil ,@$2))
-	            ((values value) `(,$1))
+The macro `with-lexer` will create a lexer state for us, which can then be passed to `read-token` to fetch the next token from the `lexbuf` in the state object.
 
-	            ;; a single value
-	            ((value :quote chars) (coerce $2 'string))
-	            ((value :int) $1)
-	            ((value :error) (error "Illegal CSV"))
+	(with-lexer (var lexer string &key source start end) &body body)
 
-	            ;; strings to concatenate
-	            ((chars :chars chars) (string-append $1 $2))
-	            ((chars :quote) ""))
+With this macro, we can only read a portion of the input string, and there's no need to generate a list of all the tokens. We can just read until we get what we want and then stop.
 
-And let's give it a spin:
+Using our CSV lexer above...
 
-	CL-USER > (parse #'csv-parser #'csv-lexer "1,\"hello, world!\",,,2")
-	(1 "hello, world!" NIL NIL 2)
-	NIL
-	
-That's it!
+	CL-USER > (with-lexer (lexer 'csv-lexer "1,2,3")
+	            (print (read-token lexer))
+	            (print (read-token lexer))
+	            (print (read-token lexer)))
+	#<TOKEN INT 1> 
+	#<TOKEN COMMA> 
+	#<TOKEN INT 2>
+
+## A Generic Token Reader
+
+In addition to working with `token` objects, sometimes it's easier to just work with the parsed token class and value. The `with-token-reader` macro allows you to do just that. You give it a lexical state (created with `with-lexer`) and it creates a function you can use to read tokens one by one, returning the class and value as multiple values.
+
+	(with-token-reader (var lexer) &body body)
+
+The token-reader will also wrap *body* in a `handler-case`, which will signal a error, providing you with the line, source, and lexeme of the error.
+
+The reason for this macro is that most parsing libraries in Common Lisp expect a lexer function with no arity that returns both the class and value of the next token. Using this macro you can provide it easily.
+
+Here are a few libraries that parse this way:
+
+* [Monadic Parsing](http://github.com/massung/parse)
+* [LispWorks ParserGen](http://www.lispworks.com/documentation/lw61/LW/html/lw-1141.htm#pgfId-886156)
+* [CL-YACC](http://www.pps.univ-paris-diderot.fr/~jch/software/cl-yacc/)
+
+And an example usage:
+
+	(with-lexer (lexer 'csv-lexer string)
+	  (with-token-reader (token-reader lexer)
+	    (parse 'my-parser token-reader)))
 
 # More (Usable) Examples
 
 Here are some lexers used to parse various file formats. As with this package, they are released under the Apache 2.0 license and are free to use in your own projects.
 
+* [URL](http://github.com/massung/url)
 * [JSON](http://github.com/massung/json)
-* [XML](http://github.com/massung/xml)
-* [HTTP](http://github.com/massung/http)
+* [CSV](http://github.com/massung/csv)
 
 More examples coming as I need them...
 
