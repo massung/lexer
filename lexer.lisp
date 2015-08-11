@@ -217,11 +217,13 @@
        (handler-case
            (progn ,@body)
          (condition (c)
-           (error "~a on line ~d~@[ of ~s~]~@[ near ~s~]"
-                  c
-                  (token-line ,token)
-                  (token-source ,token)
-                  (token-lexeme ,token))))))))
+           (if (null ,token)
+               (error c)
+             (error "~a on line ~d~@[ of ~s~]~@[ near ~s~]"
+                    c
+                    (token-line ,token)
+                    (token-source ,token)
+                    (token-lexeme ,token)))))))))
 
 ;;; ----------------------------------------------------
 
