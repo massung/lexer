@@ -136,7 +136,7 @@
   "Create a tokenize function."
   (let ((s (gensym "string"))
         (src (gensym "source"))
-        (i (gensym "offset"))
+        (i (gensym "pos"))
         (end (gensym "end"))
         (line (gensym "line"))
         (next-token (gensym "next-token"))
@@ -158,7 +158,7 @@
                  for p in productions
                  collect
                    (with-re (re (pop p))
-                     `(let ((,m (match-re ,re ,s :offset ,i :end ,end)))
+                     `(let ((,m (match-re ,re ,s :start ,i :end ,end)))
                         (when ,m
                           (let ((,s (match-string ,m)))
 
@@ -168,8 +168,7 @@
 
                             ;; evaluate the production form
                             (multiple-value-bind (,class ,value)
-                                (with-re-match (,m ,m)
-                                  (progn ,@p))
+                                (with-re-match (,m ,m) ,@p)
                               (if (eq ,class :next-token)
                                   (go ,next-token)
                                 (return-from ,lexer
