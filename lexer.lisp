@@ -21,7 +21,7 @@
   (:use :cl :re)
   (:nicknames :lex)
   (:export
-   #:deflexer
+   #:define-lexer
 
    ;; lexer state macros
    #:with-lexer
@@ -58,7 +58,7 @@
 (defclass lexstate ()
   ((stack  :initarg :stack  :reader lexstate-stack)
    (lexbuf :initarg :lexbuf :reader lexstate-buf))
-  (:documentation "The input parameter for DEFLEXER."))
+  (:documentation "The input parameter for DEFINE-LEXER."))
 
 ;;; ----------------------------------------------------
 
@@ -132,7 +132,7 @@
 
 ;;; ----------------------------------------------------
 
-(defmacro deflexer (lexer (state) &body productions)
+(defmacro define-lexer (lexer (state) &body productions)
   "Create a tokenize function."
   (let ((s (gensym "string"))
         (src (gensym "source"))
