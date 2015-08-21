@@ -218,10 +218,8 @@
          (condition (c)
            (if (null ,token)
                (error c)
-             (error "~a on line ~d~@[ of ~s~]~@[ near ~s~]"
-                    c
-                    (token-line ,token)
-                    (token-source ,token)
+             (error "~a~@[ near ~s~]"
+                    (princ-to-string c)
                     (token-lexeme ,token)))))))))
 
 ;;; ----------------------------------------------------
