@@ -182,7 +182,7 @@
 
             ;; no pattern matched; error if not at the end
             (when (< ,i ,end)
-              (make-lex-error ,state "Lexing error")))))))
+              (error "Lexing error")))))))
 
 ;;; ----------------------------------------------------
 
