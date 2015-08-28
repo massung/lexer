@@ -207,20 +207,20 @@
 
 (defmacro with-token-reader ((var lexer) &body body)
   "Create a lexer state and a function to read tokens, then execute."
-  (let ((token (gensym "token")))
-    `(let (,token)
+  (let ((token (gensym "token"))
+        (state (gensym "state")))
+    `(let ((,token nil)
+           (,state ,lexer))
        (let ((,var #'(lambda ()
-                       (when (setf ,token (read-token ,lexer))
+                       (when (setf ,token (read-token ,state))
                          (values (token-class ,token)
                                  (token-value ,token))))))
-       (handler-case
-           (progn ,@body)
-         (condition (c)
-           (if (null ,token)
-               (error c)
-             (error "~a~@[ near ~s~]"
-                    (princ-to-string c)
-                    (token-lexeme ,token)))))))))
+         (handler-bind
+             ((warning #'muffle-warning)
+
+              ;; on errors, show where the error took place
+              (condition #'(lambda (c) (make-lex-error ,state c))))
+           (progn ,@body))))))
 
 ;;; ----------------------------------------------------
 
