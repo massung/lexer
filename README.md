@@ -47,41 +47,6 @@ If all the patterns in your lexer function fail to match, then a `lex-error` con
       1 (abort) Return to level 0.
       2 Return to top loop level 0.
 
-## Analyzing Tokens
-
-Almost all parser generators for Common Lisp ([PARSERGEN](http://www.lispworks.com/documentation/lw61/LW/html/lw-1141.htm#pgfId-886156), [CL-YACC](http://www.pps.univ-paris-diderot.fr/~jch/software/cl-yacc/), ...) work by defining a single function, which takes a function as an argument that will return tokens to it as multiple value pairs: the class and value of the token.
-
-To accomodate these parsers, the `lexer` package has a function: `parse`, which defines a lexer and calls the parser function with an appropriate token reader:
-
-    (parse parser lexer string &optional source)
-
-*NOTE: From here on we'll be using the [LispWorks](http://www.lispworks.com/) parser generator for examples.*
-
-Let's create a simple parser grammar.
-
-    CL-USER > (defparser my-parser
-                ((start let))
-                ((let :ident :eq :int)
-                 `(:let ,$1 ,$3))
-                ((let :error)
-                 (error "Invalid LET syntax")))
-    MY-PARSER
-
-Now let's use the parser in conjunction with the lexer to parse a string...
-
-    CL-USER > (parse 'my-parser 'my-lexer "x = 10")
-    (:LET "x" 10)
-    NIL
-
-Since each token knows where it came from, the `parse` function also will re-signal any condition thrown as a `lex-error` identifying where in the token stream the error occurred, as well as the lexeme of the token.
-
-    CL-USER > (parse #'my-parser #'my-lexer "x = 10 20")
-    Error: Invalid LET syntax near "20" on line 1
-      1 (abort) Return to level 0.
-      2 Return to top loop level 0.
-
-And done!
-
 ## Multiple Rules
 
 Often, you will be parsing text that has different lexical rules given the current context. For example, HTML allows embedding JavaScript between `<script>` tags, and in many languages quoted strings are a mini-DSL unto themselves.
@@ -195,6 +160,7 @@ Here are some lexers used to parse various file formats. As with this package, t
 * [URL](http://github.com/massung/url)
 * [JSON](http://github.com/massung/json)
 * [CSV](http://github.com/massung/csv)
+* [XML](http://github.com/massung/xml)
 
 More examples coming as I need them...
 
