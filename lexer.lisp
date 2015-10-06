@@ -33,6 +33,7 @@
    #:slurp
 
    ;; lexing functions
+   #:read-from-lexer
    #:push-lexer
    #:pop-lexer
    #:swap-lexer
@@ -221,6 +222,18 @@
               ;; on errors, show where the error took place
               (condition #'(lambda (c) (make-lex-error ,state c))))
            (progn ,@body))))))
+
+;;; ----------------------------------------------------
+
+(defun read-from-lexer (state class &key eval)
+  "Reads from the lexbuf and returns it as the value."
+  (with-slots (string pos end)
+      (lexstate-buf state)
+    (multiple-value-bind (value position)
+        (read-from-string string t nil :start (1- pos) :end end)
+      (multiple-value-prog1
+          (values class (if eval (eval value) value))
+        (setf pos position)))))
 
 ;;; ----------------------------------------------------
 
