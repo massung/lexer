@@ -21,6 +21,7 @@
   (:use :cl :re)
   (:nicknames :lex)
   (:export
+   #:define-productions
    #:define-lexer
 
    ;; lexer state macros
@@ -53,6 +54,13 @@
    #:token-value))
 
 (in-package :lexer)
+
+;;; ----------------------------------------------------
+
+(defclass production ()
+  ((pattern :initarg :pattern :reader production-pattern)
+   (code    :initarg :code    :reader production-code))
+  (:documentation "A production rule."))
 
 ;;; ----------------------------------------------------
 
@@ -133,7 +141,32 @@
 
 ;;; ----------------------------------------------------
 
-(defmacro define-lexer (lexer (state) &body productions)
+(defmacro define-productions (name &body terms)
+  "Define a function that returns a list of productions."
+  `(defun ,name ()
+     (list
+      ,@(loop for term in terms
+           collecting (if (atom term)
+                          `(,term)
+                          `(make-instance 'production
+                                          :pattern ,(car term)
+                                          :code ',(cdr term)))))))
+
+;;; ----------------------------------------------------
+
+(defun terms-to-productions (terms)
+  "Create a list of productions from a list of terms."
+  (mapcan
+   (lambda (term) (if (atom term)
+                 (funcall term)
+                 (list (make-instance 'production
+                                      :pattern (car term)
+                                      :code (cdr term)))))
+   terms))
+
+;;; ----------------------------------------------------
+
+(defmacro define-lexer (lexer (state) &body terms)
   "Create a tokenize function."
   (let ((s (gensym "string"))
         (src (gensym "source"))
@@ -143,7 +176,9 @@
         (next-token (gensym "next-token"))
         (m (gensym "match"))
         (class (gensym "class"))
-        (value (gensym "value")))
+        (value (gensym "value"))
+        (productions (terms-to-productions terms))
+        )
     `(defun ,lexer (,state)
        (with-slots ((,s string)
                     (,src source)
@@ -158,7 +193,7 @@
             ,@(loop
                  for p in productions
                  collect
-                   (with-re (re (pop p))
+                   (with-re (re (production-pattern p))
                      `(let ((,m (match-re ,re ,s :start ,i :end ,end)))
                         (when ,m
                           (let ((,s (match-string ,m)))
@@ -169,17 +204,17 @@
 
                             ;; evaluate the production form
                             (multiple-value-bind (,class ,value)
-                                (with-re-match (,m ,m) ,@p)
+                                (with-re-match (,m ,m) ,@(production-code p))
                               (if (eq ,class :next-token)
                                   (go ,next-token)
-                                (return-from ,lexer
-                                  (when ,class
-                                    (make-instance 'token
-                                                   :class ,class
-                                                   :value ,value
-                                                   :line ,line
-                                                   :source ,src
-                                                   :lexeme ,s))))))))))
+                                  (return-from ,lexer
+                                    (when ,class
+                                      (make-instance 'token
+                                                     :class ,class
+                                                     :value ,value
+                                                     :line ,line
+                                                     :source ,src
+                                                     :lexeme ,s))))))))))
 
             ;; no pattern matched; error if not at the end
             (when (< ,i ,end)
