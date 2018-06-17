@@ -19,7 +19,7 @@ Here is a simple example:
                 ("%d+"   (values :int (parse-integer $$))))
     MY-LEXER
 
-*NOTE: If you don't understand the `$$` symbol in the example above, please see [this README](http://github.com/massung/re/README.md).*
+*NOTE: If you don't understand the `$$` symbol in the example above, please see [this README](https://github.com/massung/re/blob/master/README.md).*
 
 Each pattern should either return `nil` - indicating the end of the input buffer has been reached - or (up to) two values: the class of the token and the value of the token. Returning `:next-token` for the class is special, and indicates that this token should just be skipped.
 
