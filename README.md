@@ -158,8 +158,6 @@ And an example usage:
 Here are some lexers used to parse various file formats. As with this package, they are released under the Apache 2.0 license and are free to use in your own projects.
 
 * [URL](http://github.com/massung/url)
-* [JSON](http://github.com/massung/json)
-* [CSV](http://github.com/massung/csv)
 * [XML](http://github.com/massung/xml)
 
 More examples coming as I need them...
