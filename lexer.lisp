@@ -38,6 +38,10 @@
    #:pop-lexer
    #:swap-lexer
 
+   ;; lexstate readers
+   #:lexstate-stack
+   #:lexstate-buf
+
    ;; lexbuf readers
    #:lexbuf-string
    #:lexbuf-pos
@@ -50,7 +54,12 @@
    #:token-lexeme
    #:token-source
    #:token-class
-   #:token-value))
+   #:token-value
+
+   ;; lex-error condition
+   #:lex-error
+   #:lex-error-reason
+   #:lex-error-lexstate))
 
 (in-package :lexer)
 
@@ -84,14 +93,16 @@
 ;;; ----------------------------------------------------
 
 (define-condition lex-error (error)
-  ((reason :initarg :reason :reader lex-error-reason)
-   (line   :initarg :line   :reader lex-error-line)
-   (source :initarg :source :reader lex-error-source))
+  ((reason   :initarg :reason   :reader lex-error-reason)
+   (lexstate :initarg :lexstate :reader lex-error-lexstate))
   (:documentation "Signaled during tokenizing when no matching pattern.")
   (:report (lambda (c s)
-             (with-slots (reason line source)
+             (with-slots (reason lexstate)
                  c
-               (format s "~a on line ~a~@[ of ~s~]" reason line source)))))
+               (format s "~a on line ~a~@[ of ~s~]"
+                       reason
+                       (lexbuf-line (lexstate-buf lexstate))
+                       (lexbuf-source (lexstate-buf lexstate)))))))
 
 ;;; ----------------------------------------------------
 
@@ -115,12 +126,9 @@
 
 (defun make-lex-error (state reason)
   "Generate an error with an optional token."
-  (let ((line (lexbuf-line (lexstate-buf state)))
-        (source (lexbuf-source (lexstate-buf state))))
-    (error (make-instance 'lex-error
-                          :reason reason
-                          :line line
-                          :source source))))
+  (error (make-instance 'lex-error
+                        :reason reason
+                        :lexstate state)))
 
 ;;; ----------------------------------------------------
 
